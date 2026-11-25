@@ -1,0 +1,82 @@
+{{define "content"}}
+{{with .Data}}
+<p><a href="/documents">← Documents</a></p>
+<h1 class="mono">{{.Doc.Name}}</h1>
+
+{{if eq .Doc.Owner "Self"}}
+<div class="actions-bar">
+    <a href="/document/edit?name={{.Doc.Name}}" class="btn btn-primary">Create new version</a>
+    <form method="POST" action="/document/delete" class="inline" data-confirm="Delete document {{.Doc.Name}} and all its versions?">
+        <input type="hidden" name="name" value="{{.Doc.Name}}">
+        <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+</div>
+{{end}}
+
+<div class="grid two-col">
+    <div class="card">
+        <h2>Details</h2>
+        <dl class="details">
+            <dt>Type</dt><dd>{{.Doc.DocumentType}}</dd>
+            <dt>Owner</dt><dd>{{.Doc.Owner}}</dd>
+            <dt>Schema version</dt><dd>{{.Doc.SchemaVersion}}</dd>
+            <dt>Viewing version</dt><dd>{{.Doc.DocumentVersion}}{{if .Doc.VersionName}} ({{.Doc.VersionName}}){{end}}</dd>
+            <dt>Default version</dt><dd>{{.Doc.DefaultVersion}}</dd>
+            <dt>Latest version</dt><dd>{{.Doc.LatestVersion}}</dd>
+            <dt>Platforms</dt><dd>{{join .Doc.PlatformTypes ", "}}</dd>
+            {{if .Doc.Description}}<dt>Description</dt><dd>{{.Doc.Description}}</dd>{{end}}
+            <dt>Created</dt><dd>{{fmtTime .Doc.CreatedDate}}</dd>
+            <dt>Hash</dt><dd class="mono small">{{.Doc.Hash}}</dd>
+        </dl>
+    </div>
+    <div class="card">
+        <h2>Parameters</h2>
+        {{if .Doc.Parameters}}
+        <table class="table table-compact">
+            <thead><tr><th>Name</th><th>Type</th><th>Default</th></tr></thead>
+            <tbody>
+            {{range .Doc.Parameters}}<tr><td class="mono">{{.Name}}</td><td>{{.Type}}</td><td class="mono small">{{.DefaultValue}}</td></tr>{{end}}
+            </tbody>
+        </table>
+        {{else}}<p class="muted">This document has no parameters.</p>{{end}}
+    </div>
+</div>
+
+<div class="card">
+    <h2>Content</h2>
+    <pre class="export-block code-block" id="doc-content">{{.Content}}</pre>
+    <button type="button" class="btn btn-primary btn-copy btn-sm" data-copy="doc-content">Copy</button>
+</div>
+
+<div class="card">
+    <h2>Versions</h2>
+    <table class="table table-compact">
+        <thead><tr><th>Version</th><th>Name</th><th>Created</th><th>Format</th><th></th></tr></thead>
+        <tbody>
+        {{range .Versions}}
+        <tr>
+            <td class="num"><a href="/document?name={{.Name}}&version={{.DocumentVersion}}">{{.DocumentVersion}}</a>{{if .IsDefaultVersion}} <span class="badge badge-standard">default</span>{{end}}</td>
+            <td>{{.VersionName}}</td>
+            <td>{{fmtTime .CreatedDate}}</td>
+            <td>{{.DocumentFormat}}</td>
+            <td class="action-cell">
+                {{if and (eq $.Data.Doc.Owner "Self") (not .IsDefaultVersion)}}
+                <form method="POST" action="/document/default" class="inline">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <input type="hidden" name="version" value="{{.DocumentVersion}}">
+                    <button type="submit" class="btn btn-sm btn-secondary">Set default</button>
+                </form>
+                <form method="POST" action="/document/delete" class="inline" data-confirm="Delete version {{.DocumentVersion}}?">
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <input type="hidden" name="version" value="{{.DocumentVersion}}">
+                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}

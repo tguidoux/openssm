@@ -12,6 +12,7 @@ import (
 
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
@@ -29,6 +30,9 @@ var pages = []string{
 	"parameters.html",
 	"parameter.html",
 	"parameter_form.html",
+	"documents.html",
+	"document.html",
+	"document_form.html",
 	"keys.html",
 	"credentials.html",
 	"metrics.html",
@@ -70,6 +74,7 @@ func mustParseTemplates() map[string]*template.Template {
 // Deps are the services and settings the UI needs.
 type Deps struct {
 	Parameters     *parameters.Service
+	Documents      *documents.Service
 	KMS            *kms.Service
 	Tags           *tags.Service
 	Credentials    credentials.CredentialStore
@@ -93,6 +98,9 @@ func (h *handler) routes(mux *http.ServeMux) {
 		http.Redirect(w, r, "/parameters", http.StatusSeeOther)
 	})
 	h.parameterRoutes(mux)
+	if h.Documents != nil {
+		h.documentRoutes(mux)
+	}
 	h.keyRoutes(mux)
 	h.credentialRoutes(mux)
 	mux.HandleFunc("GET /metrics", h.handleMetrics)

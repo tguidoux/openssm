@@ -3,6 +3,7 @@ load("//tools/rules/golang:defs.bzl", "openssm_go_library")
 openssm_go_library(
     name = "go_default_library",
     srcs = [
+        "actions_documents.go",
         "actions_parameters.go",
         "actions_tags.go",
         "handler.go",
@@ -14,6 +15,7 @@ openssm_go_library(
         "//apps/go/server/protocol:go_default_library",
         "//pkgs/v1/id:go_default_library",
         "//pkgs/v1/logger:go_default_library",
+        "//pkgs/v1/ssm/documents:go_default_library",
         "//pkgs/v1/ssm/parameters:go_default_library",
         "//pkgs/v1/ssm/tags:go_default_library",
         "//pkgs/v1/ssm/types:go_default_library",

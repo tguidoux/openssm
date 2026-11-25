@@ -14,6 +14,7 @@ import (
 	"github.com/tguidoux/openssm/apps/go/server/metrics"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/memory"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
@@ -28,8 +29,10 @@ func newHandler(t *testing.T) *handlers.Handler {
 	require.NoError(t, err)
 	tg := tags.New(store)
 	p := parameters.New(store, k, tg, account, parameters.Options{})
+	d, err := documents.New(store, tg, account)
+	require.NoError(t, err)
 	m := metrics.NewCollectorWithRegistry(prometheus.NewRegistry())
-	return handlers.NewHandler(handlers.Services{Parameters: p, Tags: tg}, m, logger.New("test", logger.UncontextualLoggerType))
+	return handlers.NewHandler(handlers.Services{Parameters: p, Documents: d, Tags: tg}, m, logger.New("test", logger.UncontextualLoggerType))
 }
 
 func call(t *testing.T, h http.Handler, action, body string) (int, map[string]any, http.Header) {
@@ -131,7 +134,23 @@ func TestActionsRegistered(t *testing.T) {
 	h := newHandler(t)
 	for _, a := range []string{"PutParameter", "GetParameter", "GetParameters", "GetParametersByPath", "DescribeParameters",
 		"GetParameterHistory", "DeleteParameter", "DeleteParameters", "LabelParameterVersion", "UnlabelParameterVersion",
-		"AddTagsToResource", "RemoveTagsFromResource", "ListTagsForResource"} {
+		"AddTagsToResource", "RemoveTagsFromResource", "ListTagsForResource",
+		"CreateDocument", "UpdateDocument", "GetDocument", "DescribeDocument", "ListDocuments",
+		"ListDocumentVersions", "UpdateDocumentDefaultVersion", "DeleteDocument"} {
 		assert.Contains(t, h.Actions(), a)
 	}
+}
+
+func TestDocumentActions(t *testing.T) {
+	h := newHandler(t)
+	content, _ := json.Marshal(`{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"a","inputs":{"runCommand":["true"]}}]}`)
+	code, out, _ := call(t, h, "CreateDocument", `{"Name":"Doc1","DocumentType":"Command","Content":`+string(content)+`}`)
+	require.Equal(t, http.StatusOK, code, out)
+	assert.Equal(t, "Doc1", out["DocumentDescription"].(map[string]any)["Name"])
+
+	_, out, _ = call(t, h, "GetDocument", `{"Name":"Doc1"}`)
+	assert.Equal(t, "1", out["DocumentVersion"])
+
+	_, out, _ = call(t, h, "ListDocuments", `{"Filters":[{"Key":"Owner","Values":["Self"]}]}`)
+	assert.Len(t, out["DocumentIdentifiers"], 1)
 }

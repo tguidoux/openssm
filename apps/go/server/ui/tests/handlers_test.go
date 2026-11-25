@@ -14,6 +14,7 @@ import (
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/memory"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
@@ -23,6 +24,7 @@ import (
 type fixture struct {
 	srv    *ui.Server
 	params *parameters.Service
+	docs   *documents.Service
 }
 
 func newFixture(t *testing.T, metrics bool) *fixture {
@@ -33,12 +35,14 @@ func newFixture(t *testing.T, metrics bool) *fixture {
 	require.NoError(t, err)
 	tg := tags.New(store)
 	p := parameters.New(store, k, tg, account, parameters.Options{})
+	d, err := documents.New(store, tg, account)
+	require.NoError(t, err)
 	srv := ui.NewServer(0, ui.Deps{
-		Parameters: p, KMS: k, Tags: tg, Credentials: credentials.NewMemoryCredentialStore(),
+		Parameters: p, Documents: d, KMS: k, Tags: tg, Credentials: credentials.NewMemoryCredentialStore(),
 		EndpointURL: "http://localhost:9330", Region: "us-east-1", AccountID: "123456789012",
 		MetricsEnabled: metrics,
 	}, logger.New("ui-test", logger.UncontextualLoggerType), nil)
-	return &fixture{srv: srv, params: p}
+	return &fixture{srv: srv, params: p, docs: d}
 }
 
 func (f *fixture) get(path string) *httptest.ResponseRecorder {
@@ -225,4 +229,45 @@ func TestStaticAssets(t *testing.T) {
 	f := newFixture(t, false)
 	assert.Equal(t, http.StatusOK, f.get("/static/app.js").Code)
 	assert.Equal(t, http.StatusOK, f.get("/static/style.css").Code)
+}
+
+func TestDocumentsPages(t *testing.T) {
+	f := newFixture(t, false)
+	w := f.get("/documents")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "No documents found")
+
+	w = f.get("/documents?owner=Amazon")
+	assert.Contains(t, w.Body.String(), "AWS-RunShellScript")
+
+	w = f.get("/documents/new")
+	assert.Contains(t, w.Body.String(), "schemaVersion")
+
+	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"a","inputs":{"runCommand":["true"]}}]}`
+	w = f.post("/documents", url.Values{"name": {"MyDoc"}, "content": {content}, "format": {"JSON"}, "type": {"Command"}})
+	require.Equal(t, http.StatusSeeOther, w.Code)
+	assert.Contains(t, w.Header().Get("Location"), "success")
+
+	w = f.get("/document?name=MyDoc")
+	assert.Contains(t, w.Body.String(), "Create new version")
+	assert.Contains(t, w.Body.String(), "runShellScript")
+
+	w = f.post("/documents", url.Values{"edit": {"1"}, "name": {"MyDoc"}, "content": {content + " "}, "format": {"JSON"}})
+	require.Equal(t, http.StatusSeeOther, w.Code)
+	f.post("/document/default", url.Values{"name": {"MyDoc"}, "version": {"2"}})
+	desc, err := f.docs.Describe(context.Background(), &documents.DescribeDocumentInput{Name: "MyDoc"})
+	require.NoError(t, err)
+	assert.Equal(t, "2", desc.Document.DefaultVersion)
+
+	w = f.post("/document/delete", url.Values{"name": {"MyDoc"}})
+	assert.Equal(t, http.StatusSeeOther, w.Code)
+	_, err = f.docs.Describe(context.Background(), &documents.DescribeDocumentInput{Name: "MyDoc"})
+	assert.Error(t, err)
+}
+
+func TestAmazonDocumentIsReadOnlyInUI(t *testing.T) {
+	f := newFixture(t, false)
+	w := f.get("/document?name=AWS-RunShellScript")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "Create new version")
 }

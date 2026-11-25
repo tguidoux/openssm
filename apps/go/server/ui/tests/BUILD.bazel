@@ -8,6 +8,7 @@ openssm_go_test(
         "//pkgs/v1/credentials:go_default_library",
         "//pkgs/v1/kv/memory:go_default_library",
         "//pkgs/v1/logger:go_default_library",
+        "//pkgs/v1/ssm/documents:go_default_library",
         "//pkgs/v1/ssm/kms:go_default_library",
         "//pkgs/v1/ssm/parameters:go_default_library",
         "//pkgs/v1/ssm/tags:go_default_library",
