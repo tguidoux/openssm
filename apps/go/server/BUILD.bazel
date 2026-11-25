@@ -28,6 +28,7 @@ openssm_go_library(
         "//pkgs/v1/kv:go_default_library",
         "//pkgs/v1/kv/badger:go_default_library",
         "//pkgs/v1/kv/memory:go_default_library",
+        "//pkgs/v1/kv/postgres:go_default_library",
         "//pkgs/v1/kv/sqlite:go_default_library",
         "//pkgs/v1/logger:go_default_library",
         "//pkgs/v1/ssm/agenthub:go_default_library",

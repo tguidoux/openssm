@@ -7,6 +7,7 @@ import (
 	"github.com/tguidoux/openssm/pkgs/v1/kv"
 	kvbadger "github.com/tguidoux/openssm/pkgs/v1/kv/badger"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/memory"
+	kvpostgres "github.com/tguidoux/openssm/pkgs/v1/kv/postgres"
 	kvsqlite "github.com/tguidoux/openssm/pkgs/v1/kv/sqlite"
 	_ "modernc.org/sqlite"
 )
@@ -41,6 +42,18 @@ func openStorage(cfg SSMConfig) (*storage, error) {
 			return nil, err
 		}
 		return &storage{kv: store, credentials: credentials.NewBadgerCredentialStore(store.DB()), close: store.Close}, nil
+
+	case "postgres":
+		store, db, err := kvpostgres.Open(cfg.PostgresDSN)
+		if err != nil {
+			return nil, err
+		}
+		creds, err := credentials.NewPostgresCredentialStore(db)
+		if err != nil {
+			db.Close()
+			return nil, fmt.Errorf("creating Postgres credential store: %w", err)
+		}
+		return &storage{kv: store, credentials: creds, close: db.Close}, nil
 
 	default:
 		return &storage{kv: memory.New(), credentials: credentials.NewMemoryCredentialStore(), close: func() error { return nil }}, nil

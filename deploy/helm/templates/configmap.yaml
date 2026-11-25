@@ -27,6 +27,9 @@ data:
       {{- if eq .Values.openssm.ssm.storageType "badger" }}
       badgerPath: {{ .Values.openssm.ssm.badgerPath | quote }}
       {{- end }}
+      {{- if eq .Values.openssm.ssm.storageType "postgres" }}
+      postgresDsn: {{ .Values.openssm.ssm.postgresDsn | quote }}
+      {{- end }}
       # serverSecret is loaded from the Kubernetes Secret via the SSM__SERVERSECRET env var
     kms:
       autoCreateKeys: {{ .Values.openssm.kms.autoCreateKeys }}

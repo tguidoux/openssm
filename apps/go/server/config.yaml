@@ -11,7 +11,7 @@ ssm:
   nodeAddress: "localhost:9330"
   accountId: "123456789012"
   region: "us-east-1"
-  storageType: "sqlite"  # "memory", "sqlite", or "badger"
+  storageType: "sqlite"  # "memory", "sqlite", "badger", or "postgres"
   sqlitePath: "/tmp/openssm.db"
   # badgerPath: "/data/badger"
   # Secret used to sign agent/session tokens and (by default) wrap KMS keys.

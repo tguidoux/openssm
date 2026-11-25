@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	badger "github.com/tguidoux/openssm/pkgs/v1/kv/badger"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -106,6 +107,20 @@ func TestSQLiteStore(t *testing.T) {
 func TestBadgerStore(t *testing.T) {
 	db := newTestBadgerDB(t)
 	store := credentials.NewBadgerCredentialStore(db.DB())
+	defer store.Close()
+	runStoreTests(t, store)
+}
+
+func TestPostgresStore(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set; skipping postgres credential store test")
+	}
+	db, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	store, err := credentials.NewPostgresCredentialStore(db)
+	require.NoError(t, err)
 	defer store.Close()
 	runStoreTests(t, store)
 }

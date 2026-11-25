@@ -11,7 +11,7 @@ pkgs/v1/
 ├── logger/        # Structured JSON logging
 ├── id/            # UUID / hex ID generation
 ├── credentials/   # Access key store (memory, SQLite, Badger) used by SigV4 auth
-├── kv/            # Transactional key-value store + memory/sqlite/badger backends
+├── kv/            # Transactional key-value store + memory/sqlite/badger/postgres backends
 ├── agentproto/    # JSON wire types shared by the server and openssm-agent
 ├── agent/         # openssm-agent library (client, executor, PTY sessions)
 ├── ssmmessages/   # Session Manager binary framing and reliable stream
