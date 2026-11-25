@@ -37,8 +37,12 @@ body:
     attributes:
       label: Area
       options:
-        - SQS API Compatibility
-        - Queue Engine
+        - Parameter Store / KMS
+        - Documents
+        - Run Command / Managed Instances
+        - Session Manager
+        - openssm-agent
+        - Web UI
         - Storage Backend
         - Server / Configuration
         - Deployment (Helm/Docker)

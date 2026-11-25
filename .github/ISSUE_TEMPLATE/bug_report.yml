@@ -24,8 +24,8 @@ body:
       description: Steps to reproduce the behavior.
       placeholder: |
         1. Start the server with `bazel run //apps/go/server:openssm-server`
-        2. Create a queue: `aws sqs create-queue --queue-name my-queue`
-        3. Send a message: `aws sqs send-message ...`
+        2. Put a parameter: `aws ssm put-parameter --name /demo --value x --type String`
+        3. Run: `aws ssm ...`
         4. See error
     validations:
       required: true

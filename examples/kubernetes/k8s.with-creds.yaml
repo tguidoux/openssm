@@ -1,186 +1,129 @@
-# Kubernetes — OpenSSM with initial credentials
-#
-# Purpose:
-#   Deploy OpenSSM to a Kubernetes cluster with authentication enabled and
-#   pre-seeded credentials. The access key / secret key are stored in a
-#   Kubernetes Secret and injected as environment variables. Pods in the
-#   cluster can authenticate using these known credentials from the start.
+# Kubernetes — OpenSSM with pre-seeded credentials
 #
 # Usage:
-#   # 1. Create the namespace and secret first
-#   kubectl apply -f examples/kubernetes/k8s.secret.yaml
+#   kubectl apply -f examples/kubernetes/k8s.secret.yaml   # namespace + secret
+#   kubectl apply -f <this file>
+#   kubectl port-forward -n openssm svc/openssm 9330:9330 9331:9331
 #
-#   # 2. Deploy OpenSSM
-#   kubectl apply -f examples/kubernetes/k8s.with-creds.yaml
-#
-# Access:
-#   kubectl port-forward svc/openssm 9324:9324 -n openssm
-#   # Then: export AWS_ENDPOINT_URL=http://localhost:9324
-#   #       export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-#   #       export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-#   #       export AWS_DEFAULT_REGION=us-east-1
-#
-# See: examples/kubernetes/README.md
-
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openssm
-  labels:
-    app.kubernetes.io/name: openssm
-
+# See: examples/README.md
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: openssm-config
   namespace: openssm
-  labels:
-    app.kubernetes.io/name: openssm
 data:
   config.yaml: |
+    # OpenSSM configuration — with pre-seeded credentials
+    #
+    # serverSecret is overridden by SSM__SERVERSECRET from openssm-secret.
+    #
+    # The AWS documentation example keys below are NOT secret. Replace them (and
+    # serverSecret) in any shared deployment. Never commit real credentials.
+
     server:
       host: "0.0.0.0"
-      port: 9324
-    sqs:
-      nodeAddress: "openssm.openssm.svc.cluster.local:9324"
+      port: 9330
+
+    ssm:
+      nodeAddress: "openssm.openssm.svc:9330"
       accountId: "123456789012"
       region: "us-east-1"
       storageType: "memory"
-      strictLimits: true
-      # serverSecret is injected via SQS__SERVERSECRET env var from the Secret
+      serverSecret: "dev-only-not-for-production"
+
+    sessions:
+      # session-manager-plugin only connects to ssmmessages.<region>.<domain> hosts;
+      # *.localhost resolves to 127.0.0.1 on most systems.
+      streamUrlBase: "ws://ssmmessages.us-east-1.localhost:9330"
+
+    parameters:
+      startup:
+        - name: "/example/app/url"
+          value: "https://example.com"
+          type: "String"
+        - name: "/example/app/password"
+          value: "change-me"
+          type: "SecureString"
+
     log:
       level: "info"
-    health:
-      port: 8001
+
     ui:
       enabled: true
-      port: 9325
+      port: 9331
+
     metrics:
       enabled: true
-      port: 9326
+      port: 9332
+
     environment: "staging"
+
     auth:
       enabled: true
-      # Initial credentials are injected via environment variables:
-      #   SQS__AUTH__INITIALCREDENTIALS__0__LABEL
-      #   SQS__AUTH__INITIALCREDENTIALS__0__ACCESSKEYID
-      #   SQS__AUTH__INITIALCREDENTIALS__0__SECRETACCESSKEY
-    queues:
-      autoCreate: true
-
+      initialCredentials:
+        - label: "dev-access-key"
+          accessKeyId: "AKIAIOSFODNN7EXAMPLE"
+          secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: openssm
   namespace: openssm
-  labels:
-    app.kubernetes.io/name: openssm
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: openssm
+      app: openssm
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: openssm
+        app: openssm
     spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
         fsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: openssm
           image: ghcr.io/tguidoux/openssm/openssm-server:latest
-          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: api, containerPort: 9330}
+            - {name: ui, containerPort: 9331}
+            - {name: metrics, containerPort: 9332}
+            - {name: health, containerPort: 8001}
           env:
             - name: CONFIG_PATH
               value: /etc/openssm/config.yaml
-            # Server secret for signing receipt handles
-            - name: SQS__SERVERSECRET
+            - name: SSM__SERVERSECRET
               valueFrom:
                 secretKeyRef:
-                  name: openssm-secrets
+                  name: openssm-secret
                   key: serverSecret
-            # Initial credentials — injected from the Kubernetes Secret
-            - name: SQS__AUTH__INITIALCREDENTIALS__0__LABEL
-              valueFrom:
-                secretKeyRef:
-                  name: openssm-secrets
-                  key: credLabel
-            - name: SQS__AUTH__INITIALCREDENTIALS__0__ACCESSKEYID
-              valueFrom:
-                secretKeyRef:
-                  name: openssm-secrets
-                  key: accessKeyId
-            - name: SQS__AUTH__INITIALCREDENTIALS__0__SECRETACCESSKEY
-              valueFrom:
-                secretKeyRef:
-                  name: openssm-secrets
-                  key: secretAccessKey
-          ports:
           readinessProbe:
-            httpGet:
-              path: /health
-              port: health
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            httpGet: {path: /health, port: health}
           livenessProbe:
-            httpGet:
-              path: /health
-              port: health
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          securityContext:
-            readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+            httpGet: {path: /health, port: health}
+            initialDelaySeconds: 10
           volumeMounts:
             - name: config
               mountPath: /etc/openssm
               readOnly: true
-            - name: tmp
-              mountPath: /tmp
       volumes:
         - name: config
           configMap:
             name: openssm-config
-        - name: tmp
-          emptyDir: {}
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: openssm
   namespace: openssm
-  labels:
-    app.kubernetes.io/name: openssm
 spec:
-  type: ClusterIP
-  ports:
-    - name: sqs
-      port: 9324
-      targetPort: sqs
-      protocol: TCP
-    - name: ui
-      port: 9325
-      targetPort: ui
-      protocol: TCP
-    - name: metrics
-      port: 9326
-      targetPort: metrics
-      protocol: TCP
-    - name: health
-      port: 8001
-      targetPort: health
-      protocol: TCP
   selector:
-    app.kubernetes.io/name: openssm
+    app: openssm
+  ports:
+    - {name: api, port: 9330, targetPort: api}
+    - {name: ui, port: 9331, targetPort: ui}
+    - {name: metrics, port: 9332, targetPort: metrics}

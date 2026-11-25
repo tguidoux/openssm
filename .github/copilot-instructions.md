@@ -18,8 +18,9 @@ We use Bazel for all builds and dependencies, not Maven, npm scripts, or other b
 Always use Bazel commands and BUILD.bazel files for any build-related suggestions.
 
 ## Project Structure
-- `apps/` - Applications organized by language (go/)
-- `pkgs/v1/` - Shared packages and libraries
+- `apps/go/server/` - openssm-server: SSM API (AWS JSON 1.1), agent API, Session Manager relay, Web UI
+- `apps/go/agent/` - openssm-agent binary (managed instance agent)
+- `pkgs/v1/` - Shared packages: config, logger, kv store, credentials, `ssm/*` domain services, agent, ssmmessages
 - `tools/` - Custom Bazel rules and development tools
 - `deploy/helm/` - Helm chart for Kubernetes deployment
 - `examples/` - Deployment examples (Docker, Docker Compose, Kubernetes, CLI commands)
@@ -28,7 +29,8 @@ Always use Bazel commands and BUILD.bazel files for any build-related suggestion
 Use custom `openssm_go_library`, `openssm_go_binary`, `openssm_go_test`, and `openssm_go_image` rules instead of standard go_* rules.
 All Go services follow the pattern: main.go in service root with structured configuration using `config.ConfigI[T]` and `env.Environment`.
 Import paths follow `github.com/tguidoux/openssm/` prefix.
-Use Huma v2 for HTTP APIs with chi router.
+The SSM API uses a typed action registry (`apps/go/server/handlers`), not a router framework: one `register(h, "Action", svc.Method)` per action.
+Domain services live in `pkgs/v1/ssm/<domain>` and persist through `pkgs/v1/kv` transactions (memory, SQLite, Badger).
 Configuration structs use YAML tags and environment-specific configs.
 Services include health check servers on port 8001 for non-local environments.
 Use `//visibility:public` for shared libraries, `//visibility:private` for internal packages.
@@ -38,13 +40,13 @@ Go services: main.go, config.yaml, BUILD.bazel.
 
 ## Configuration
 Environment-specific configuration in YAML files (config.yaml for local, values.{env}.yaml for deployments).
-Secrets stored in AWS SSM Parameter Store, referenced by path in configs.
+Secrets (e.g. `ssm.serverSecret`) are injected with `SECTION__KEY` environment variables such as `SSM__SERVERSECRET`.
 Configuration structs embed `config.ConfigI[T]` for automatic loading and validation.
 Environment enum: LOCAL, STAGING, PROD using `env.Environment` type.
 
 ## Deployment
 Use `openssm_go_image` macros for containerization.
-All images are based on distroless for security.
+The server image uses distroless; the agent image is Ubuntu-based so commands and sessions have a real shell.
 Registry: ghcr.io/tguidoux/openssm namespace.
 
 ## Testing
@@ -67,9 +69,13 @@ Simply run `bazel run //:gazelle` after adding new test files or packages, and i
 
 ## Shared Libraries
 All shared code in `pkgs/v1/` with domain-specific packages:
-`config/` - Configuration loading from YAML with schema validation.
+`config/` - Configuration loading from YAML, `SECTION__KEY` env overrides.
 `environment/` - Environment enum (LOCAL, STAGING, PROD).
 `logger/` - Structured logging for Go.
+`kv/` - Transactional key-value store with memory/sqlite/badger backends.
+`ssm/` - Domain services: types, kms, tags, parameters, documents, instances, commands, sessions, agenthub.
+`agent/`, `agentproto/` - openssm-agent library and its wire protocol.
+`ssmmessages/` - Session Manager data channel framing compatible with session-manager-plugin.
 
 ## Development Workflow
 `bazel run //:clean` - Complete workspace cleanup.
@@ -89,7 +95,8 @@ Use `bazel run //:buildifier` if you want to use buildifier directly.
 Use `bazel run //:buildozer` if you want to use buildozer directly.
 
 ## Security & Best Practices
-Unless specified, never hardcode secrets - use AWS SSM Parameter Store references.
+Never hardcode secrets; inject them through environment overrides or Kubernetes Secrets.
+Store tokens and activation codes only as SHA-256 hashes and compare them in constant time.
 Use structured logging with context throughout the application.
 Implement graceful shutdown handlers in long-running services.
 Health checks on /health endpoint for Kubernetes readiness/liveness probes.

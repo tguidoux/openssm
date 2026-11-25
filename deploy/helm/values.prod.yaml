@@ -28,16 +28,19 @@ service:
 
 openssm:
   host: "0.0.0.0"
-  port: 9324
+  port: 9330
 
-  sqs:
-    nodeAddress: ""  # Set to the external endpoint
+  ssm:
+    nodeAddress: "https://openssm.example.com"  # External endpoint used by clients and agents
     accountId: "123456789012"
     region: "us-east-1"
     storageType: "badger"  # Use persistent storage in production
     badgerPath: "/data/badger"
-    strictLimits: true
-    serverSecret: ""  # REQUIRED: Set via existingSecret or this field — server will fail to start with empty secret
+    serverSecret: ""  # REQUIRED: set via existingSecret or this field
+
+  sessions:
+    # Must match an ingress host shaped like ssmmessages.<region>.<domain>
+    streamUrlBase: "wss://ssmmessages.us-east-1.openssm.example.com"
 
   logLevel: "info"
 
@@ -47,11 +50,11 @@ openssm:
 
   ui:
     enabled: true
-    port: 9325
+    port: 9331
 
   metrics:
     enabled: true
-    port: 9326
+    port: 9332
 
   environment: "prod"
 
@@ -62,14 +65,10 @@ openssm:
     enabled: true
     requestsPerSecond: 1000
     burst: 100
-    perQueue: true
+    perAction: true
 
   tls:
     enabled: false  # Typically handled by ingress in production
-
-  queues:
-    autoCreate: false
-    startup: []
 
 # Use an existing secret for the server secret (required in production)
 existingSecret: ""  # Set to the secret name containing "serverSecret" key — server will fail to start without a secret
@@ -87,15 +86,23 @@ ingress:
   className: "nginx"
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Long polls (agents) and Session Manager WebSockets need long timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   hosts:
     - host: openssm.example.com
       paths:
         - path: /
           pathType: Prefix
+    - host: ssmmessages.us-east-1.openssm.example.com
+      paths:
+        - path: /v1/data-channel
+          pathType: Prefix
   tls: []
   #  - secretName: openssm-tls
   #    hosts:
   #      - openssm.example.com
+  #      - ssmmessages.us-east-1.openssm.example.com
 
 resources:
   limits:

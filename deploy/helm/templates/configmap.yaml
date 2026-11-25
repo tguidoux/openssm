@@ -16,19 +16,36 @@ data:
         certFile: {{ .Values.openssm.tls.certFile | quote }}
         keyFile: {{ .Values.openssm.tls.keyFile | quote }}
       {{- end }}
-    sqs:
-      nodeAddress: {{ .Values.openssm.sqs.nodeAddress | quote }}
-      accountId: {{ .Values.openssm.sqs.accountId | quote }}
-      region: {{ .Values.openssm.sqs.region | quote }}
-      storageType: {{ .Values.openssm.sqs.storageType | quote }}
-      {{- if eq .Values.openssm.sqs.storageType "sqlite" }}
-      sqlitePath: {{ .Values.openssm.sqs.sqlitePath | quote }}
+    ssm:
+      nodeAddress: {{ .Values.openssm.ssm.nodeAddress | default (printf "%s.%s.svc:%v" (include "openssm.fullname" .) .Release.Namespace .Values.service.port) | quote }}
+      accountId: {{ .Values.openssm.ssm.accountId | quote }}
+      region: {{ .Values.openssm.ssm.region | quote }}
+      storageType: {{ .Values.openssm.ssm.storageType | quote }}
+      {{- if eq .Values.openssm.ssm.storageType "sqlite" }}
+      sqlitePath: {{ .Values.openssm.ssm.sqlitePath | quote }}
       {{- end }}
-      {{- if eq .Values.openssm.sqs.storageType "badger" }}
-      badgerPath: {{ .Values.openssm.sqs.badgerPath | quote }}
+      {{- if eq .Values.openssm.ssm.storageType "badger" }}
+      badgerPath: {{ .Values.openssm.ssm.badgerPath | quote }}
       {{- end }}
-      strictLimits: {{ .Values.openssm.sqs.strictLimits }}
-      # serverSecret is loaded from the Kubernetes Secret via SQS__SERVERSECRET env var
+      # serverSecret is loaded from the Kubernetes Secret via the SSM__SERVERSECRET env var
+    kms:
+      autoCreateKeys: {{ .Values.openssm.kms.autoCreateKeys }}
+      {{- with .Values.openssm.kms.keys }}
+      keys:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    parameters:
+      defaultTier: {{ .Values.openssm.parameters.defaultTier | quote }}
+      maxStandardParameters: {{ .Values.openssm.parameters.maxStandardParameters }}
+      maxAdvancedParameters: {{ .Values.openssm.parameters.maxAdvancedParameters }}
+      {{- with .Values.openssm.parameters.startup }}
+      startup:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    agents:
+      pingTimeoutSeconds: {{ .Values.openssm.agents.pingTimeoutSeconds }}
+    sessions:
+      streamUrlBase: {{ .Values.openssm.sessions.streamUrlBase | quote }}
     log:
       level: {{ .Values.openssm.logLevel | quote }}
     health:
@@ -46,18 +63,6 @@ data:
       enabled: {{ .Values.openssm.rateLimit.enabled }}
       requestsPerSecond: {{ .Values.openssm.rateLimit.requestsPerSecond }}
       burst: {{ .Values.openssm.rateLimit.burst }}
-      perQueue: {{ .Values.openssm.rateLimit.perQueue }}
-    queues:
-      autoCreate: {{ .Values.openssm.queues.autoCreate }}
-      {{- if .Values.openssm.queues.startup }}
-      startup:
-      {{- range .Values.openssm.queues.startup }}
-        - name: {{ .name | quote }}
-          {{- if .attributes }}
-          attributes:
-          {{- range $k, $v := .attributes }}
-            {{ $k }}: {{ $v | quote }}
-          {{- end }}
-          {{- end }}
-      {{- end }}
-      {{- end }}
+      perAction: {{ .Values.openssm.rateLimit.perAction }}
+    auth:
+      enabled: {{ .Values.openssm.auth.enabled }}

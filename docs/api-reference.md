@@ -1,722 +1,122 @@
-# SQS API Reference
+# API reference
+
+OpenSSM implements the AWS SSM API (`AmazonSSM`, AWS JSON 1.1). Request and response members, error codes and
+HTTP statuses follow the [AWS SSM API reference](https://docs.aws.amazon.com/systems-manager/latest/APIReference/);
+this page documents what is supported and where OpenSSM differs.
 
-This document describes the SQS API actions implemented by OpenSSM.
+All timestamps are epoch seconds (with milliseconds). Paginated operations return an opaque `NextToken`.
 
-## Supported Protocols
+## Parameter Store
 
-| Protocol | Content-Type | Used By |
-|----------|-------------|---------|
-| **Query Protocol** | `application/x-www-form-urlencoded` | AWS CLI, boto3 (default), aws-sdk-go-v1 |
-| **JSON Protocol 1.0** | `application/x-amz-json-1.0` | aws-sdk-go-v2, aws-sdk-js-v3, aws-sdk-java-v2 |
+| Action | Notes |
+|--------|-------|
+| `PutParameter` | `String`, `StringList`, `SecureString`; `Overwrite`, `Description`, `AllowedPattern`, `KeyId`, `Tier`, `Policies`, `DataType` (`text`, `aws:ec2:image`, `aws:ssm:integration`), `Tags` (create only) |
+| `GetParameter` | Name, ARN, `name:version`, `name:label`; `WithDecryption` |
+| `GetParameters` | Up to 10 names; unknown names/selectors are returned in `InvalidParameters` |
+| `GetParametersByPath` | `Recursive`, `ParameterFilters` (`Type`, `KeyId`, `Label`, `tag:*`), `WithDecryption`, max 10 per page |
+| `DescribeParameters` | `ParameterFilters` (`Name` Equals/BeginsWith/Contains, `Path` OneLevel/Recursive, `Type`, `KeyId`, `Tier`, `DataType`, `Label`, `tag:<key>`) or legacy `Filters`; max 50 per page |
+| `GetParameterHistory` | All retained versions with labels and policies; max 50 per page |
+| `DeleteParameter` / `DeleteParameters` | Deletes all versions and tags |
+| `LabelParameterVersion` | Up to 10 labels per version; a label moves from any other version; invalid labels returned in `InvalidLabels` |
+| `UnlabelParameterVersion` | Returns `RemovedLabels` and `InvalidLabels` |
 
-Protocol is auto-detected from the `X-Amz-Target` header and `Content-Type`.
+**Rules enforced:** name syntax and reserved `aws`/`ssm` prefixes, hierarchy depth (15), value size (4 KB Standard,
+8 KB Advanced), no Advanced → Standard downgrade, Intelligent-Tiering, 100 versions (oldest unlabeled version dropped;
+`ParameterMaxVersionLimitExceeded` if it is labeled), `AllowedPattern` full-match, parameter count limits.
 
-## Queue URL Format
+**Policies:** `Expiration` is enforced (expired parameters disappear and are swept). `ExpirationNotification` and
+`NoChangeNotification` are validated and stored but no events are emitted (there is no EventBridge).
 
-```
-http://{host}:{port}/{accountId}/{queueName}
-```
+**SecureString:** encrypted with the local KMS. `KeyId` accepts a key ID, key ARN, alias name or alias ARN.
+`alias/aws/ssm` is the default; other keys must exist (`kms.keys`, Web UI) unless `kms.autoCreateKeys` is on.
 
-Example: `http://localhost:9324/123456789012/my-queue`
+## Tags
 
-## Implemented Actions
+`AddTagsToResource`, `RemoveTagsFromResource`, `ListTagsForResource` for resource types `Parameter`, `Document` and
+`ManagedInstance` (max 50 tags; `aws:` prefix reserved). Other resource types return `InvalidResourceType`.
 
-### Queue Management
+## Documents
 
-#### CreateQueue
+| Action | Notes |
+|--------|-------|
+| `CreateDocument` | `Command` (schema 1.2, 2.0, 2.2), `Session` (1.0), `Automation` (stored, not executed); `JSON`/`YAML`; `VersionName`, `DisplayName`, `TargetType`, `Tags` |
+| `UpdateDocument` | New version from `$LATEST`; duplicate content and version names rejected |
+| `GetDocument` | By default/`$LATEST`/number/`VersionName`; `DocumentFormat` converts between JSON and YAML |
+| `DescribeDocument` | Parameters, platform types, hash (`Sha256`), default/latest version, tags |
+| `ListDocuments` | `Filters` (`Owner` Self/Amazon/All, `Name`, `SearchKeyword`, `DocumentType`, `PlatformTypes`, `TargetType`, `tag:*`) or legacy `DocumentFilterList` |
+| `ListDocumentVersions` | Newest first |
+| `UpdateDocumentDefaultVersion` | Version number or `$LATEST` |
+| `DeleteDocument` | Whole document or one non-default version |
 
-Creates a new queue. If a queue with the same name already exists and has matching attributes, the existing queue is returned (idempotent). If attributes differ, a `QueueAlreadyExists` error is returned.
+Built-in, read-only (`Owner: Amazon`) documents: `AWS-RunShellScript`, `AWS-RunPowerShellScript`,
+`SSM-SessionManagerRunShell`, `AWS-StartInteractiveCommand`, `AWS-StartNonInteractiveCommand`.
 
-**FIFO queues:** Queue name must end with `.fifo`. Set `FifoQueue` attribute to `true`. Optionally set `ContentBasedDeduplication` to `true` for content-based deduplication.
+Names starting with `AWS-`, `Amazon` or `Amzn` are reserved. Content is limited to 64 KB.
 
-**Dead-letter queues:** Set the `RedrivePolicy` attribute as a JSON string with `deadLetterTargetArn` and `maxReceiveCount`.
+## Managed instances
 
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueName` | Yes | Queue name (must end with `.fifo` for FIFO queues) |
-| `Attribute.N.Name` / `Attribute.N.Value` | No | Queue attributes (e.g., `FifoQueue=true`, `RedrivePolicy`) |
+| Action | Notes |
+|--------|-------|
+| `CreateActivation` | `IamRole` (informational, required), `RegistrationLimit` (1–1000), `ExpirationDate` (≤ 30 days, default 24 h), `DefaultInstanceName`, `Tags` |
+| `DescribeActivations` | Filters `ActivationIds`, `DefaultInstanceName`, `IamRole` |
+| `DeleteActivation` | Registered instances are kept |
+| `DescribeInstanceInformation` | `Filters`/`InstanceInformationFilterList`: `InstanceIds`, `PingStatus`, `PlatformTypes`, `AgentVersion`, `ActivationIds`, `IamRole`, `ResourceType`, `tag:*`, `tag-key`; `MaxResults` 5–50 |
+| `DeregisterManagedInstance` | Revokes the agent token and deletes the instance's tags |
 
-**Common attributes for CreateQueue:**
-| Attribute | Description |
-|-----------|-------------|
-| `FifoQueue` | Set to `true` for FIFO queues |
-| `ContentBasedDeduplication` | Enable content-based deduplication (FIFO only) |
-| `RedrivePolicy` | JSON: `{"deadLetterTargetArn":"arn:...","maxReceiveCount":"3"}` |
-| `VisibilityTimeout` | Visibility timeout in seconds |
-| `DelaySeconds` | Default delay for messages |
-| `ReceiveMessageWaitTimeSeconds` | Default long polling wait time |
+Instances are registered by `openssm-agent` (not the real `amazon-ssm-agent`). `PingStatus` is `Online` until no
+heartbeat or poll has been received for `agents.pingTimeoutSeconds`, then `ConnectionLost`.
 
-**Query Protocol:**
-```
-POST /
-Action=CreateQueue&QueueName=my-queue
-```
+## Run Command
 
-**JSON Protocol:**
-```
-POST /
-X-Amz-Target: AmazonSQS.CreateQueue
-{"QueueName": "my-queue"}
-```
+| Action | Notes |
+|--------|-------|
+| `SendCommand` | `InstanceIds` (≤ 50) or `Targets` (`InstanceIds`, `tag:<key>`, `tag-key`; multiple targets are ANDed), `DocumentName`/`DocumentVersion`/`DocumentHash`, `Parameters`, `TimeoutSeconds` (delivery, 30–2592000), `Comment`, `MaxConcurrency`/`MaxErrors` (validated) |
+| `ListCommands` | By `CommandId`/`InstanceId`, filters `Status`, `DocumentName`, `InvokedAfter`, `InvokedBefore`, `ExecutionStage` |
+| `ListCommandInvocations` | `Details=true` includes per-plugin status and output (first 2500 chars) |
+| `GetCommandInvocation` | Standard output/error (first 24000 chars), response code, execution times; `PluginName` required for multi-step documents |
+| `CancelCommand` | Whole command or specific instances; undelivered invocations are cancelled immediately |
 
-**FIFO queue example (Query Protocol):**
-```
-POST /
-Action=CreateQueue&QueueName=orders.fifo&Attribute.1.Name=FifoQueue&Attribute.1.Value=true&Attribute.2.Name=ContentBasedDeduplication&Attribute.2.Value=true
-```
+Supported plugins: `aws:runShellScript` (`/bin/sh` by default) and `aws:runPowerShellScript` (`pwsh`/`powershell`),
+with `runCommand`, `workingDirectory`, and `timeoutSeconds`. `precondition` `StringEquals [platformType, …]`
+skips non-matching steps. Other plugins fail with a clear error.
 
-**Response:**
-```xml
-<CreateQueueResponse>
-  <CreateQueueResult>
-    <QueueUrl>http://localhost:9324/123456789012/my-queue</QueueUrl>
-  </CreateQueueResult>
-  <ResponseMetadata>
-    <RequestId>00000000-0000-0000-0000-000000000000</RequestId>
-  </ResponseMetadata>
-</CreateQueueResponse>
-```
+Statuses follow AWS: `Pending` → `InProgress` → `Success` | `Failed` | `TimedOut` | `Cancelled` (`Cancelling` while a
+cancellation is in flight). `DeliveryTimedOut` and `ExecutionTimedOut` appear in `StatusDetails`.
 
----
+**Differences:** `MaxConcurrency`/`MaxErrors` are not used for rate control (all targets run immediately);
+S3/CloudWatch output and SNS notifications are not supported.
 
-#### DeleteQueue
+## Session Manager
 
-Deletes a queue and all its messages.
+| Action | Notes |
+|--------|-------|
+| `StartSession` | `Target` must be an Online managed instance. Documents: `SSM-SessionManagerRunShell` (default, `Standard_Stream`), `AWS-StartInteractiveCommand`, `AWS-StartNonInteractiveCommand`, or your own Session documents. Returns `SessionId`, `TokenValue`, `StreamUrl` |
+| `ResumeSession` | Rotates `TokenValue` for an active session (used by the plugin to reconnect) |
+| `TerminateSession` | Closes both sides of the data channel; idempotent |
+| `DescribeSessions` | `State` `Active` or `History`; filters `Target`, `Owner`, `Status`, `SessionId`, `InvokedAfter`, `InvokedBefore` |
 
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue to delete |
+Session document `inputs` honoured by the agent: `idleSessionTimeout`, `maxSessionDuration`, `shellProfile.linux`,
+`runAsEnabled`/`runAsDefaultUser` (agent running as root). Port-forwarding (`Port`) sessions, KMS session encryption
+and session logging to S3/CloudWatch are not supported.
 
----
+## Errors
 
-#### GetQueueUrl
-
-Returns the URL of an existing queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueName` | Yes | Name of the queue |
-
-**Response:** Returns the queue URL.
-
----
-
-#### ListQueues
-
-Returns a list of all queues, optionally filtered by name prefix.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueNamePrefix` | No | Only return queues starting with this prefix |
-
-**Response:** List of queue URLs.
-
----
-
-#### PurgeQueue
-
-Deletes all messages from a queue without deleting the queue itself.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue to purge |
-
----
-
-#### GetQueueAttributes
-
-Returns attribute values for a queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `AttributeName.N` | No | Attribute names to retrieve. Use `All` for all attributes |
-
-**Available attributes:**
-
-| Attribute | Description | Default |
-|-----------|-------------|---------|
-| `ApproximateNumberOfMessages` | Messages available for retrieval | — |
-| `ApproximateNumberOfMessagesNotVisible` | Messages in flight | — |
-| `ApproximateNumberOfMessagesDelayed` | Messages awaiting delivery | — |
-| `VisibilityTimeout` | Visibility timeout (seconds) | 30 |
-| `MaximumMessageSize` | Max body size (bytes) | 262,144 |
-| `MessageRetentionPeriod` | How long messages are kept (seconds) | 345,600 |
-| `DelaySeconds` | Default delay for messages | 0 |
-| `ReceiveMessageWaitTimeSeconds` | Default long polling wait | 0 |
-| `QueueArn` | Queue ARN | — |
-| `Policy` | Queue access policy | — |
-| `RedrivePolicy` | DLQ configuration | — |
-| `FifoQueue` | Whether queue is FIFO | false |
-| `ContentBasedDeduplication` | Content-based dedup for FIFO | false |
-| `KmsMasterKeyId` | KMS key ID | — |
-| `KmsDataKeyReusePeriodSeconds` | KMS key reuse period | — |
-| `DeduplicationScope` | Dedup scope | — |
-| `FifoThroughputLimit` | Throughput limit | — |
-| `SqsManagedSseEnabled` | SSE enabled | true |
-
----
-
-#### SetQueueAttributes
-
-Sets attribute values for a queue. Attributes are applied immediately and persist for the lifetime of the queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `Attribute.N.Name` / `Attribute.N.Value` | Yes | Attribute name-value pairs |
-
-**Settable attributes:**
-
-| Attribute | Valid Range |
-|-----------|-------------|
-| `VisibilityTimeout` | 0–43,200 seconds |
-| `MaximumMessageSize` | 1,024–262,144 bytes |
-| `MessageRetentionPeriod` | 60–1,209,600 seconds |
-| `DelaySeconds` | 0–900 seconds |
-| `ReceiveMessageWaitTimeSeconds` | 0–20 seconds |
-| `Policy` | JSON string |
-| `RedrivePolicy` | JSON string |
-| `FifoQueue` | `true` / `false` |
-| `ContentBasedDeduplication` | `true` / `false` |
-| `KmsMasterKeyId` | KMS key ID or ARN |
-| `KmsDataKeyReusePeriodSeconds` | 60–86,400 seconds |
-| `SqsManagedSseEnabled` | `true` / `false` |
-
-**Query Protocol:**
-```
-POST /
-Action=SetQueueAttributes&QueueUrl=http://...&Attribute.1.Name=VisibilityTimeout&Attribute.1.Value=60
-```
-
-**JSON Protocol:**
-```json
-POST /
-X-Amz-Target: AmazonSQS.SetQueueAttributes
-{"QueueUrl": "http://...", "Attributes": {"VisibilityTimeout": "60"}}
-```
-
-Returns `InvalidAttributeName` error if an unknown attribute name is provided.
-
----
-
-### Message Operations
-
-#### SendMessage
-
-Sends a message to a queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `MessageBody` | Yes | Message body (max 256 KB) |
-| `DelaySeconds` | No | Delay before message becomes visible (0–900). Not supported on FIFO queues. |
-| `MessageAttribute.N.Name` / `.Value` | No | Message attributes |
-| `MessageSystemAttribute.N.Name` / `.Value` | No | Message system attributes (e.g., `AWSTraceHeader`) |
-| `MessageDeduplicationId` | No | Deduplication ID (required for FIFO queues without content-based dedup) |
-| `MessageGroupId` | No | Message group ID (required for FIFO queues) |
-
-**FIFO queues:** `MessageGroupId` is required. `MessageDeduplicationId` is required unless `ContentBasedDeduplication` is enabled on the queue. Messages within the same group are delivered in order.
-
-**Message Attribute Data Types:**
-
-| Type | Field Used | Example |
-|------|------------|---------|
-| `String` | `StringValue` | `"application/json"` |
-| `Number` | `StringValue` | `"42"` (must be valid number) |
-| `Binary` | `BinaryValue` | Base64-encoded bytes |
-
-**Response:** Returns `MessageId`, `MD5OfMessageBody`, `MD5OfMessageAttributes` (when present), `MD5OfMessageSystemAttributes` (when system attributes are present), and `SequenceNumber` (FIFO queues only).
-
-**Query Protocol:**
-```
-POST /
-Action=SendMessage&QueueUrl=http://...&MessageBody=hello
-&MessageAttribute.1.Name=Priority&MessageAttribute.1.Value.DataType=Number&MessageAttribute.1.Value.StringValue=5
-```
-
-**FIFO example (Query Protocol):**
-```
-POST /
-Action=SendMessage&QueueUrl=http://.../orders.fifo&MessageBody=hello
-&MessageGroupId=group-1&MessageDeduplicationId=dedup-1
-```
-
-**System attributes example (Query Protocol):**
-```
-POST /
-Action=SendMessage&QueueUrl=http://...&MessageBody=hello
-&MessageSystemAttribute.1.Name=AWSTraceHeader&MessageSystemAttribute.1.Value.DataType=String&MessageSystemAttribute.1.Value.StringValue=Root=1-5759e988-bd862e3fe1be46a994272793
-```
-
-**JSON Protocol:**
-```json
-POST /
-X-Amz-Target: AmazonSQS.SendMessage
-{
-  "QueueUrl": "http://...",
-  "MessageBody": "hello",
-  "MessageAttributes": {
-    "Priority": {"DataType": "Number", "StringValue": "5"}
-  }
-}
-```
-
-**FIFO example (JSON Protocol):**
-```json
-POST /
-X-Amz-Target: AmazonSQS.SendMessage
-{
-  "QueueUrl": "http://.../orders.fifo",
-  "MessageBody": "hello",
-  "MessageGroupId": "group-1",
-  "MessageDeduplicationId": "dedup-1"
-}
-```
-
----
-
-#### ReceiveMessage
-
-Retrieves one or more messages from a queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `MaxNumberOfMessages` | No | Max messages to retrieve (1–10, default 1) |
-| `VisibilityTimeout` | No | Visibility timeout for received messages |
-| `WaitTimeSeconds` | No | Long polling wait time (0–20 seconds) |
-| `AttributeName.N` | No | Message attributes to retrieve |
-| `MessageAttributeNames.N` | No | Message attribute names to retrieve |
-
-**Response:** Returns messages with `MessageId`, `ReceiptHandle`, `MD5OfBody`, `Body`, and attributes.
-
-**Long polling:** When `WaitTimeSeconds` > 0, the request blocks until messages are available or the wait time expires.
-
----
-
-#### DeleteMessage
-
-Deletes a previously received message using its receipt handle.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `ReceiptHandle` | Yes | Receipt handle from ReceiveMessage |
-
----
-
-#### ChangeMessageVisibility
-
-Changes the visibility timeout of a received message.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `ReceiptHandle` | Yes | Receipt handle from ReceiveMessage |
-| `VisibilityTimeout` | Yes | New visibility timeout in seconds (0–43,200) |
-
-Setting `VisibilityTimeout` to 0 makes the message immediately visible again.
-
----
-
-### Batch Operations
-
-#### SendMessageBatch
-
-Sends up to 10 messages to a queue in a single request. Each entry is processed independently — successful entries return `MessageId` and `MD5OfMessageBody`, while failed entries return error details.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `SendMessageBatchRequestEntry.N` | Yes | 1–10 batch entries |
-
-Each entry contains:
-| Field | Required | Description |
-|-------|----------|-------------|
-| `Id` | Yes | Client-side identifier (unique within batch) |
-| `MessageBody` | Yes | Message body |
-| `DelaySeconds` | No | Per-message delay (0–900). Not supported on FIFO queues. |
-| `MessageAttribute.N.Name` / `.Value` | No | Per-message attributes |
-| `MessageSystemAttribute.N.Name` / `.Value` | No | Per-message system attributes |
-| `MessageDeduplicationId` | No | Dedup ID (FIFO queues without content-based dedup) |
-| `MessageGroupId` | No | Message group ID (FIFO queues) |
-
-**Response:** Returns `Successful` (with `Id`, `MessageId`, `MD5OfMessageBody`, `MD5OfMessageAttributes`, `MD5OfMessageSystemAttributes`, `SequenceNumber` for FIFO) and `Failed` (with `Id`, `Code`, `Message`, `SenderFault`) lists.
-
-**Validation:**
-- Max 10 entries per batch (`TooManyEntriesInBatch` error if exceeded)
-- Entry IDs must be distinct (`BatchEntryIdsNotDistinct` error if duplicated)
-- Each entry is validated independently; partial success is possible
-
----
-
-#### DeleteMessageBatch
-
-Deletes up to 10 messages in a single request using their receipt handles.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `DeleteMessageBatchRequestEntry.N` | Yes | 1–10 batch entries |
-
-Each entry contains:
-| Field | Required | Description |
-|-------|----------|-------------|
-| `Id` | Yes | Client-side identifier (unique within batch) |
-| `ReceiptHandle` | Yes | Receipt handle from `ReceiveMessage` |
-
-**Response:** Returns `Successful` and `Failed` lists.
-
----
-
-#### ChangeMessageVisibilityBatch
-
-Changes the visibility timeout for up to 10 messages in a single request.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `ChangeMessageVisibilityBatchRequestEntry.N` | Yes | 1–10 batch entries |
-
-Each entry contains:
-| Field | Required | Description |
-|-------|----------|-------------|
-| `Id` | Yes | Client-side identifier (unique within batch) |
-| `ReceiptHandle` | Yes | Receipt handle from `ReceiveMessage` |
-| `VisibilityTimeout` | Yes | New visibility timeout (0–43,200) |
-
-**Response:** Returns `Successful` and `Failed` lists.
-
----
-
-### Queue Tagging
-
-#### TagQueue
-
-Adds or overwrites tags on a queue. Tags are key-value metadata that can be used for cost allocation, access control, or organization.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `Tag.N.Key` / `Tag.N.Value` | Yes | Tag key-value pairs |
-
-**Query Protocol:**
-```
-POST /
-Action=TagQueue&QueueUrl=http://...&Tag.1.Key=Environment&Tag.1.Value=production
-```
-
-**JSON Protocol:**
-```json
-POST /
-X-Amz-Target: AmazonSQS.TagQueue
-{"QueueUrl": "http://...", "Tags": {"Environment": "production"}}
-```
-
----
-
-#### UntagQueue
-
-Removes specified tags from a queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `TagKey.N` | Yes | Tag keys to remove |
-
----
-
-#### ListQueueTags
-
-Returns all tags associated with a queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-
-**Response:** Returns a map of tag key-value pairs.
-
----
-
-### Permission Management
-
-#### AddPermission
-
-Adds a permission to a queue's policy. **Currently a stub** — accepts the request and returns success without enforcing ACLs.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `Label` | Yes | Unique label for the permission |
-| `AWSAccountId.N` | Yes | AWS account IDs to grant access |
-| `ActionName.N` | Yes | SQS actions to allow |
-
----
-
-#### RemovePermission
-
-Removes a permission from a queue's policy. **Currently a stub** — accepts the request and returns success without enforcing ACLs.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the queue |
-| `Label` | Yes | Label of the permission to remove |
-
----
-
-### Dead-Letter Queues
-
-#### ListDeadLetterSourceQueues
-
-Returns the URLs of all queues that have a `RedrivePolicy` pointing to the specified dead-letter queue.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `QueueUrl` | Yes | URL of the dead-letter queue |
-
-**Response:** Returns a list of queue URLs that use the specified queue as their dead-letter target.
-
-**Query Protocol:**
-```
-POST /
-Action=ListDeadLetterSourceQueues&QueueUrl=http://.../my-dlq
-```
-
-**JSON Protocol:**
-```json
-POST /
-X-Amz-Target: AmazonSQS.ListDeadLetterSourceQueues
-{"QueueUrl": "http://.../my-dlq"}
-```
-
----
-
-## Message Move Tasks
-
-### StartMessageMoveTask
-
-Starts a background task to move messages from a source queue (typically a DLQ) to a destination queue. If `DestinationArn` is omitted, the server auto-discovers the destination by finding a queue whose `RedrivePolicy` points to the source.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `SourceArn` | Yes | ARN of the source queue (typically the DLQ) |
-| `DestinationArn` | No | ARN of the destination queue. Auto-discovered if omitted. |
-| `MaxNumberOfMessagesPerSecond` | No | Rate limit for message movement (0 = unlimited) |
-
-**Response:** Returns `TaskHandle` (unique task identifier) and `ApproximateNumberOfMessagesMoved` (initially 0).
-
-**Query Protocol:**
-```
-POST /
-Action=StartMessageMoveTask&SourceArn=arn:aws:sqs:us-east-1:123456789012:my-dlq
-```
-
-**JSON Protocol:**
-```json
-POST /
-X-Amz-Target: AmazonSQS.StartMessageMoveTask
-{"SourceArn": "arn:aws:sqs:us-east-1:123456789012:my-dlq"}
-```
-
----
-
-#### CancelMessageMoveTask
-
-Cancels a running message move task. Returns the approximate number of messages moved before cancellation.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `TaskHandle` | Yes | Task handle from `StartMessageMoveTask` |
-
-**Response:** Returns `ApproximateNumberOfMessagesMoved`.
-
----
-
-#### ListMessageMoveTasks
-
-Lists message move tasks, optionally filtered by source ARN.
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `SourceArn` | No | Filter tasks by source queue ARN |
-
-**Response:** Returns a list of task objects with `TaskHandle`, `SourceArn`, `DestinationArn`, `Status`, `ApproximateNumberOfMessagesMoved`, and `MaxNumberOfMessagesPerSecond`.
-
-Task statuses: `RUNNING`, `COMPLETED`, `CANCELLING`, `CANCELLED`, `FAILED`.
-
----
-
-## Error Responses
-
-### Query Protocol (XML)
-
-```xml
-<ErrorResponse>
-  <Error>
-    <Type>Sender</Type>
-    <Code>QueueDoesNotExist</Code>
-    <Message>The specified queue does not exist.</Message>
-  </Error>
-  <RequestId>00000000-0000-0000-0000-000000000000</RequestId>
-</ErrorResponse>
-```
-
-### JSON Protocol
+Errors use the AWS JSON 1.1 shape and the `X-Amzn-ErrorType` header:
 
 ```json
-{
-  "__type": "com.amazonaws.sqs#QueueDoesNotExist",
-  "message": "The specified queue does not exist.",
-  "RequestId": "00000000-0000-0000-0000-000000000000"
-}
+{"__type": "ParameterNotFound", "message": "Parameter /missing not found."}
 ```
 
-### Error Codes
+| Situation | `__type` | HTTP |
+|-----------|----------|------|
+| Unknown action | `InvalidAction` | 400 |
+| Missing/invalid `X-Amz-Target` | `UnknownOperationException` | 400 |
+| Malformed JSON | `SerializationException` | 400 |
+| Missing signature | `MissingAuthenticationTokenException` | 400 |
+| Unknown access key | `InvalidClientTokenId` | 400 |
+| Bad signature / wrong service or region | `SignatureDoesNotMatch` / `InvalidSignatureException` | 400 |
+| Rate limited | (empty body) | 429 |
+| Unexpected failure | `InternalServerError` | 500 |
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `InvalidAction` | 400 | Unknown or missing action |
-| `MissingParameter` | 400 | Required parameter missing |
-| `InvalidParameterValue` | 400 | Invalid parameter value |
-| `InvalidAttributeName` | 400 | Unknown attribute name |
-| `InvalidQueryParameter` | 400 | Unknown query parameter |
-| `QueueAlreadyExists` | 400 | Queue name in use with different attributes |
-| `AWS.SimpleQueueService.NonExistentQueue` | 400 | Queue not found |
-| `InvalidMessageContents` | 400 | Message body invalid |
-| `ReceiptHandleIsInvalid` | 400 | Invalid receipt handle |
-| `AWS.SimpleQueueService.TooManyEntriesInBatch` | 400 | More than 10 batch entries |
-| `AWS.SimpleQueueService.BatchEntryIdsNotDistinct` | 400 | Duplicate batch entry IDs |
-| `OverLimit` | 403 | Too many queues or operations |
-| `InternalError` | 500 | Internal server error |
-| `UnsupportedOperation` | 400 | Operation not supported |
-| `InvalidParameterValue` | 400 | Invalid FIFO queue name (missing `.fifo` suffix), missing `MessageGroupId`, etc. |
-
-## Server Configuration
-
-### Auto-Create Queues
-
-When `autoCreate` is enabled in the server config, the server automatically creates a queue on first access (SendMessage, ReceiveMessage, etc.) if it doesn't already exist. This is useful for development and testing.
-
-```yaml
-queues:
-  autoCreate: true
-```
-
-### Storage Backends
-
-OpenSSM supports three storage backends, selected via the `storageType` config field:
-
-#### Memory (default)
-
-In-memory storage with `time.AfterFunc` visibility timers. Fastest option, no persistence.
-
-```yaml
-sqs:
-  storageType: "memory"
-```
-
-#### SQLite
-
-Durable persistence using the pure-Go `modernc.org/sqlite` driver (no CGO). Uses lazy visibility timeout evaluation (no goroutines). WAL mode enabled for concurrent reads.
-
-```yaml
-sqs:
-  storageType: "sqlite"
-  sqlitePath: "/data/openssm.db"
-```
-
-The SQLite store supports all features including FIFO queues, dead-letter queues, visibility timeouts, and long polling. Messages persist across server restarts.
-
-#### BadgerDB
-
-Durable persistence using BadgerDB v4 (`dgraph-io/badger/v4`). Lazy visibility timeout evaluation, iterator-based scanning with prefix filtering.
-
-```yaml
-sqs:
-  storageType: "badger"
-  badgerPath: "/data/badger"
-```
-
-The BadgerDB store supports all features including FIFO queues, dead-letter queues, visibility timeouts, and long polling. Messages persist across server restarts.
-
-### TLS
-
-Each server (SQS API, UI, metrics, health) can be individually configured for TLS:
-
-```yaml
-server:
-  tls:
-    enabled: true
-    certFile: "/path/to/cert.pem"
-    keyFile: "/path/to/key.pem"
-```
-
-Minimum TLS version is 1.2. When TLS is disabled, the server uses plain HTTP.
-
-### Request Logging
-
-When enabled, logs each HTTP request with request ID, method, path, status code, bytes written, duration, remote address, and user agent.
-
-```yaml
-requestLogging:
-  enabled: true
-```
-
-### Rate Limiting
-
-When enabled, applies token bucket rate limiting (using `golang.org/x/time/rate`). Supports global or per-queue limiting.
-
-```yaml
-rateLimit:
-  enabled: true
-  requestsPerSecond: 1000
-  burst: 100
-  perQueue: true
-```
-
-When rate limited, the server returns `429 Too Many Requests` with a `Retry-After: 1` header.
-
-### Prometheus Metrics
-
-When enabled, exposes Prometheus metrics at `http://localhost:9326/metrics`:
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `openssm_messages_sent_total` | Counter | `queue` | Total messages sent |
-| `openssm_messages_received_total` | Counter | `queue` | Total messages received |
-| `openssm_messages_deleted_total` | Counter | `queue` | Total messages deleted |
-| `openssm_queue_size` | Gauge | `queue`, `type` | Queue size (available/inflight/delayed) |
-| `openssm_api_requests_total` | Counter | `action`, `protocol` | API request count |
-| `openssm_api_request_duration_seconds` | Histogram | `action`, `protocol` | API request latency |
-| `openssm_move_task_messages_moved_total` | Counter | `source_arn`, `destination_arn` | Messages moved by move tasks |
-| `openssm_move_task_active` | Gauge | — | Active move task count |
-
-```yaml
-metrics:
-  enabled: true
-  port: 9326
-```
+Domain errors (`ParameterNotFound`, `ParameterAlreadyExists`, `InvalidDocument`, `InvalidInstanceId`,
+`InvocationDoesNotExist`, `DoesNotExistException`, …) match the AWS names.

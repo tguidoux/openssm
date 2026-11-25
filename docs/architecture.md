@@ -1,254 +1,169 @@
-# Server Architecture
+# Architecture
 
-This document describes the internal architecture of the OpenSSM server.
+OpenSSM is a single Go server (`openssm-server`) plus an optional host agent (`openssm-agent`).
+The server exposes the AWS SSM API and everything needed by agents and Session Manager clients on one port.
 
-## Overview
+```mermaid
+flowchart LR
+    subgraph Clients
+        CLI[AWS CLI / SDKs]
+        Plugin[session-manager-plugin]
+        Browser[Web browser]
+    end
+    subgraph Server[openssm-server]
+        MW[Middleware<br/>logging · SigV4 · rate limit]
+        API[handlers<br/>X-Amz-Target dispatch]
+        AgentAPI[agentapi<br/>/agent/v1/*]
+        Relay[sessionws relay]
+        UI[Web UI :9331]
+        Metrics[Prometheus :9332]
+        subgraph Domain[pkgs/v1/ssm]
+            Params[parameters]
+            KMS[kms]
+            Docs[documents]
+            Inst[instances]
+            Cmds[commands]
+            Sess[sessions]
+            Tags[tags]
+            Hub[agenthub]
+        end
+        KV[(kv store<br/>memory · SQLite · Badger)]
+    end
+    Agent[openssm-agent<br/>on managed host]
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                      OpenSSM Server                      │
-│                                                           │
-│  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐ │
-│  │  SQS REST API  │  │  Web UI       │  │  Metrics     │ │
-│  │  (Port 9324)   │  │  (Port 9325)  │  │  (Port 9326) │ │
-│  └───────┬────────┘  └───────┬───────┘  └──────────────┘ │
-│          │                   │                           │
-│  ┌───────┴───────────────────┴────────────────┐          │
-│  │           Middleware Layer                  │          │
-│  │  RequestLogger · RateLimiter · Chain        │          │
-│  └───────┬─────────────────────────────────────┘          │
-│          │                                                │
-│  ┌───────┴──────────────────────────────────────┐         │
-│  │              Request Handler Layer            │         │
-│  │  Protocol Detection → Parse → Dispatch       │         │
-│  └───────┬──────────────────────────────────────┘         │
-│          │                                                │
-│  ┌───────┴──────────────────────────────────────┐         │
-│  │              Action Handler Layer             │         │
-│  │  CreateQueue · SendMessage · ReceiveMessage   │         │
-│  └───────┬──────────────────────────────────────┘         │
-│          │                                                │
-│  ┌───────┴──────────────────────────────────────┐         │
-│  │              Queue Engine (pkgs/v1/queue)     │         │
-│  │  QueueManager → Queue → Store                 │         │
-│  │  MoveTaskManager (DLQ message migration)      │         │
-│  └───────┬──────────────────────────────────────┘         │
-│          │                                                │
-│  ┌───────┴──────────────────────────────────────┐         │
-│  │              Storage Layer (pluggable)        │         │
-│  │  MemoryStore · SQLiteStore · BadgerStore      │         │
-│  └──────────────────────────────────────────────┘         │
-│                                                           │
-│  ┌──────────────────────────────────────────────┐         │
-│  │  Health Check (Port 8001) · TLS · Shared Libs │         │
-│  └──────────────────────────────────────────────┘         │
-└──────────────────────────────────────────────────────────┘
+    CLI -- AWS JSON 1.1 :9330 --> MW --> API --> Domain
+    Plugin -- WebSocket /v1/data-channel --> Relay
+    Agent -- long poll /agent/v1/poll --> AgentAPI
+    Agent -- WebSocket /agent/v1/sessions --> Relay
+    Browser --> UI --> Domain
+    AgentAPI --> Inst & Cmds & Sess
+    Relay --> Sess
+    Domain --> KV
 ```
 
-## Store Factory
+## Components
 
-The server creates a `StoreFactory` function at startup based on the `storageType` config field. This factory is called for each queue to create the appropriate `Store` implementation, passing FIFO/DLQ configuration via `StoreConfig`:
+| Component | Location | Responsibility |
+|-----------|----------|----------------|
+| Entry point | `apps/go/server/main.go` | Load config, open storage, build services, start servers, graceful shutdown, maintenance loop |
+| Storage | `apps/go/server/storage.go`, `pkgs/v1/kv` | One transactional kv store per process; credentials share the same database |
+| Middleware | `apps/go/server/middleware` | Request logging, SigV4 auth (`ssm` service), global or per-action rate limiting |
+| Protocol | `apps/go/server/protocol` | AWS JSON 1.1 request decoding and `{"__type","message"}` errors |
+| Handlers | `apps/go/server/handlers` | Typed action registry: `register(h, "PutParameter", svc.Put)` |
+| Agent API | `apps/go/server/agentapi` | Agent registration, heartbeats, long polling, command results |
+| Session relay | `apps/go/server/sessionws` | Bridges plugin and agent data channels per session |
+| UI | `apps/go/server/ui` | Server-rendered pages for every domain plus credentials and metrics |
+| Domain services | `pkgs/v1/ssm/*` | Business logic, validation, AWS-compatible shapes and errors |
+| Agent | `apps/go/agent`, `pkgs/v1/agent` | Host agent: registration, executor, PTY sessions |
 
-- **`memory`** (default) — Creates `MemoryStore` instances with `time.AfterFunc` visibility timers
-- **`sqlite`** — Creates `SQLiteStore` instances with lazy visibility timeout evaluation (no goroutines), backed by a shared SQLite database file with WAL mode enabled
-- **`badger`** — Creates `BadgerStore` instances with lazy visibility timeout evaluation, backed by BadgerDB v4 with iterator-based scanning
+## Request flow (SSM API)
 
-## File Layout
+1. `POST /` with `X-Amz-Target: AmazonSSM.<Action>` and a JSON body.
+2. Middleware chain: request logger → SigV4 auth (verifies the signature and puts the caller identity in the
+   context) → rate limiter.
+3. `handlers.Handler` looks up the action, decodes the body into the service's input struct, calls the service,
+   and marshals the output. Errors are converted with `types.AsSSMError`; unknown errors become
+   `InternalServerError` (HTTP 500).
+4. Services run inside `kv.Store` transactions. Writes are atomic: either a whole `PutParameter` (new version,
+   tags, encryption) commits or nothing does.
 
-```
-apps/go/server/
-├── main.go               # Entry point: config, logger, queue manager, HTTP servers, shutdown
-├── config.go             # ServerConfig struct and sub-configs
-├── config.yaml           # Local development configuration
-├── request_handler.go    # HTTP handler: protocol detection, parsing, dispatch, response
-├── error_response.go     # SQS error response writer (XML/JSON)
-├── startup_queues.go     # Converts config attributes to QueueAttributes for startup queues
-├── BUILD.bazel           # Bazel build rules (openssm_go_library, binary, image)
-├── handlers/             # Action dispatcher and protocol adapters
-│   ├── handler.go        # Handler struct, Request interface, Response struct, dispatch
-│   ├── actions.go        # Action handler implementations
-│   └── adapter.go        # Query/JSON request adapters, protocol detection, response marshalling
-├── protocol/             # Wire protocol parsers and response marshallers
-│   ├── query.go          # AWS Query Protocol parser (form-urlencoded)
-│   ├── json.go           # AWS JSON Protocol 1.0 parser
-│   ├── marshal.go        # XML/JSON response types and marshallers
-│   └── errors.go         # SQSErrorResponse (XML/JSON error formatting)
-├── middleware/           # HTTP middleware
-│   ├── middleware.go      # Middleware type, Chain function
-│   ├── request_logger.go # RequestLogger middleware (structured per-request logging)
-│   └── rate_limiter.go    # RateLimiter middleware (token bucket, global or per-queue)
-├── tls/                  # TLS configuration
-│   └── tls.go            # TLS config loader (cert/key files, min TLS 1.2)
-├── metrics/              # Prometheus metrics server
-│   ├── server.go         # Metrics HTTP server, /metrics endpoint
-│   └── metrics.go        # Metric definitions (counters, gauges, histograms)
-├── ui/                   # Web UI server (optional, enabled by config)
-│   ├── server.go         # HTTP server, route registration, start/stop
-│   ├── handlers.go       # Page handlers (index, queue detail, create), JSON API, helpers
-│   ├── templates/        # HTML templates (layout, index, queue, create_queue)
-│   ├── static/           # CSS and JavaScript assets
-│   └── tests/            # Handler tests
-├── health/               # Health check HTTP server
-│   └── server.go         # GET /health → 200 OK
-└── integration/          # Integration tests (15 tests covering all major features)
-    └── integration_test.go
-```
+## Domain services
 
-## Startup Flow
+- **kms** — Each key holds random 256-bit material wrapped with a master key derived from `kms.masterKey`
+  (defaults to `ssm.serverSecret`). SecureString values are sealed with AES-256-GCM, bound to the parameter
+  name as additional authenticated data. `alias/aws/ssm` is created on first start.
+- **parameters** — Stores every retained version (max 100) of a parameter in one record. Labels move between
+  versions; `name:version` and `name:label` selectors are supported. Expiration policies are enforced lazily on
+  read and by the maintenance sweep.
+- **documents** — Versioned content with a default version. Built-in Amazon documents are re-seeded at
+  startup. `Resolve` returns parsed content for execution; `ResolveParameters` and `Interpolate` render
+  `{{ parameter }}` references.
+- **instances** — Activations (hashed codes, registration limits, expiry), managed instances (`mi-` + 17 hex),
+  per-instance bearer tokens (hashed at rest), ping status from heartbeats, tag-based target resolution.
+- **commands** — `SendCommand` validates the document and parameters, renders steps, and writes one invocation per
+  target plus a per-instance delivery queue entry. The agent claims queued work, executes it, and reports
+  results. A sweep times out undelivered invocations (`TimeoutSeconds`) and lost executions.
+- **sessions** — `StartSession` checks the target is Online, stores a hashed one-time data channel token, and
+  queues the session for the agent. `ResumeSession` rotates the token; `TerminateSession` notifies the relay.
+- **tags** — Tags for every resource type, written inside the owning service's transaction.
+- **agenthub** — In-memory wake-ups so a long-polling agent returns immediately when work is queued.
 
-```
-main()
-  │
-  ├── 1. Load config (CONFIG_PATH env var → config.yaml → /apps/go/server/config.yaml)
-  ├── 2. Initialize logger (UncontextualLogger, name="openssm-server")
-  ├── 3. Create Limits (strict or relaxed based on config)
-├── 4. Create QueueManager (nodeAddress, accountID, region, serverSecret, storeFactory)
-  ├── 5. Create startup queues from config (if any)
-  ├── 6. Create Handler (manager + limits)
-  ├── 7. Register HTTP handler on "/"
-  ├── 8. Start health check server (non-local only, configurable port)
-  ├── 9. Start Web UI server (if enabled in config, default port 9325)
-  ├── 10. Start HTTP server in goroutine
-  └── 11. Wait for SIGINT/SIGTERM → graceful shutdown (10s timeout)
+## Agent data path (Run Command)
+
+```mermaid
+sequenceDiagram
+    participant CLI as AWS CLI
+    participant S as openssm-server
+    participant A as openssm-agent
+    A->>S: POST /agent/v1/poll (long poll, Bearer token)
+    CLI->>S: SendCommand
+    S-->>A: wake-up → {commands:[...]}
+    A->>A: run steps (/bin/sh, timeout, process group)
+    A->>S: POST /agent/v1/commands/{id} {status, plugins}
+    CLI->>S: GetCommandInvocation
+    S-->>CLI: Status, StandardOutputContent
 ```
 
-## Request Lifecycle
+Cancellation (`CancelCommand`) of a delivered invocation is returned to the agent in the next poll; the agent kills
+the step's process group and reports `Cancelled`.
 
+## Session data path
+
+```mermaid
+sequenceDiagram
+    participant P as session-manager-plugin
+    participant R as sessionws relay
+    participant A as openssm-agent
+    P->>R: StartSession (via API) → StreamUrl + TokenValue
+    R-->>A: poll response {sessions:[...]}
+    A->>R: WS /agent/v1/sessions/{id} (Bearer)
+    P->>R: WS /v1/data-channel/{id}, open_data_channel{TokenValue}
+    A->>R: HandshakeRequest (SessionType)
+    R->>P: HandshakeRequest
+    P->>R: HandshakeResponse
+    R->>A: HandshakeResponse
+    A->>R: HandshakeComplete
+    R->>P: HandshakeComplete
+    P-)A: keystrokes / terminal size (input_stream_data)
+    A-)P: PTY output (output_stream_data)
+    A->>R: channel_closed (shell exited)
+    R->>P: channel_closed
 ```
-HTTP Request
-  │
-  ├── handleSQSRequest()
-  │     ├── DetectProtocol()           → QueryProtocol or JSONProtocol
-  │     ├── Parse request body         → QueryRequest or JSONRequest
-  │     ├── Wrap in adapter            → QueryRequestAdapter or JSONRequestAdapter
-  │     ├── Handler.HandleRequest()    → dispatch to action handler
-  │     │     ├── resolveQueue()       → lookup queue by URL
-  │     │     ├── Validate parameters  → limits checks
-  │     │     └── Call Queue/Store     → business logic
-  │     ├── MarshalResponse()          → XML or JSON bytes
-  │     └── Write HTTP response        → 200 OK + content-type
-  │
-  └── (on error) writeErrorResponse()
-        ├── Type-assert to SQSError
-        ├── Create SQSErrorResponse
-        ├── Serialize to XML or JSON
-        └── Write with appropriate HTTP status code
-```
 
-## Key Design Decisions
+The relay is an endpoint on each side: it acknowledges, orders and retransmits stream data independently per
+connection and forwards payloads. This lets the plugin reconnect with `ResumeSession` (sequence numbers carry
+over) and keeps each hop simple. See [protocol.md](protocol.md#session-manager-data-channel).
 
-### Single HTTP Endpoint
+## Storage
 
-All SQS API actions are served from a single `/` endpoint. The action is determined from the request body (`Action` parameter in Query Protocol, `X-Amz-Target` header in JSON Protocol), not from the URL path.
+All persistent state lives in one kv store selected by `ssm.storageType`:
 
-### Dual Protocol Support
+| Bucket | Owner | Key |
+|--------|-------|-----|
+| `parameters` | parameters | parameter name |
+| `documents` | documents | document name |
+| `kms_keys`, `kms_aliases` | kms | key ID / alias |
+| `tags` | tags | `<ResourceType>\x00<id>` |
+| `activations`, `instances` | instances | activation ID / instance ID |
+| `commands`, `invocations`, `command_queue` | commands | command ID / `<command>\x00<instance>` / `<instance>\x00<command>` |
+| `sessions`, `session_queue` | sessions | session ID / `<instance>\x00<session>` |
 
-The server transparently handles both AWS wire protocols:
+Credentials use their own table/prefix in the same database (`pkgs/v1/credentials`).
 
-| Protocol | Detection | Request Format | Response Format |
-|----------|-----------|----------------|-----------------|
-| Query Protocol | `Content-Type: application/x-www-form-urlencoded` or no `X-Amz-Target` | Form-urlencoded body or query string | XML |
-| JSON Protocol | `X-Amz-Target` header or `Content-Type: application/x-amz-json-1.0` | JSON body | JSON |
+OpenSSM is designed to run as a **single replica**: state is local to the process (SQLite/Badger files or memory),
+and the agent hub and session relays are in-memory.
 
-Both protocols are dispatched to the same action handlers via the `Request` interface, ensuring identical behavior regardless of client SDK.
+## Background maintenance
 
-### Pluggable Storage
+Every 30 seconds the server deletes expired parameters, times out command invocations, fails sessions that never
+connected, and refreshes resource gauges (`openssm_parameters`, `openssm_documents`, `openssm_managed_instances`).
 
-The `store.Store` interface decouples queue logic from persistence. Three implementations are available:
+## Security model
 
-- **MemoryStore** — In-memory storage with `time.AfterFunc` visibility timers. Default for local development.
-- **SQLiteStore** — Persistent storage backed by SQLite (pure-Go `modernc.org/sqlite` driver, no CGO). Uses lazy visibility timeout evaluation (no goroutines). Suitable for production use.
-- **BadgerStore** — Persistent storage backed by BadgerDB v4 (`dgraph-io/badger/v4`). Uses lazy visibility timeout evaluation with iterator-based scanning and prefix filtering. Suitable for production use.
-
-The server selects the storage backend at startup based on the `storageType` config field. A `StoreFactory` function creates the appropriate store for each queue, passing FIFO/DLQ configuration via `StoreConfig`.
-
-### Signed Receipt Handles
-
-Receipt handles are HMAC-SHA256 signed using the server's secret key. They encode:
-- Queue name
-- Message ID
-- Receive timestamp
-- Random nonce (8 bytes)
-
-This prevents forgery and allows the server to validate that a receipt handle was issued by this server instance.
-
-### Graceful Shutdown
-
-On `SIGINT`/`SIGTERM`, the server:
-1. Stops accepting new HTTP requests
-2. Waits up to 10 seconds for in-flight requests to complete
-3. Stops the health check server (if running)
-4. Stops the Web UI server (if running)
-5. Stops the metrics server (if running)
-
-In-flight messages with active visibility timers continue their timeout behavior in the background.
-
-### Middleware Layer
-
-HTTP middleware follows the standard Go `func(http.Handler) http.Handler` pattern. The `Chain` function composes multiple middlewares in order. Available middlewares:
-
-- **RequestLogger** — Logs each request with request ID, method, path, status code, bytes written, duration, remote address, and user agent. Generates a unique request ID for correlation.
-- **RateLimiter** — Token bucket rate limiting using `golang.org/x/time/rate`. Supports global or per-queue limiting. Returns `429 Too Many Requests` with `Retry-After: 1` header when rate exceeded.
-
-### TLS Support
-
-Each HTTP server (SQS API, UI, metrics, health) can be individually configured for TLS. The TLS config loader (`tls/tls.go`) reads certificate and key files, enforces minimum TLS 1.2, and returns a `*tls.Config`. When TLS is disabled, the server uses plain HTTP.
-
-### Prometheus Metrics
-
-When enabled, the metrics server exposes Prometheus-format metrics at `/metrics` on port 9326 (configurable). Metrics include:
-
-- Message counters (sent, received, deleted) per queue
-- Queue size gauges (available, in-flight, delayed) per queue
-- API request counters and latency histograms per action and protocol
-- Move task counters (messages moved, active tasks)
-
-### Message Move Tasks
-
-The `MoveTaskManager` (in `pkgs/v1/queue/dlq/move_task.go`) handles background migration of messages from a DLQ to a source or custom destination queue. Tasks run in goroutines with optional rate limiting. The manager supports:
-
-- **Auto-discovery** — If `DestinationArn` is omitted, finds a queue whose `RedrivePolicy` points to the source.
-- **Rate limiting** — `MaxNumberOfMessagesPerSecond` controls the move rate.
-- **Cancellation** — Tasks can be cancelled mid-flight.
-- **Status tracking** — `RUNNING` → `COMPLETED`/`CANCELLED`/`FAILED`.
-
-### Helm Chart Deployment
-
-OpenSSM includes a production-ready Helm chart in `deploy/helm/` for Kubernetes deployment:
-
-- **Deployment** — Configurable replicas, image, resources, probes
-- **Service** — ClusterIP/NodePort/LoadBalancer
-- **ConfigMap** — Server configuration
-- **PersistentVolumeClaim** — For SQLite/BadgerDB persistent storage
-- **Ingress** — Optional ingress with TLS
-- **HorizontalPodAutoscaler** — CPU/memory-based autoscaling
-- **PodDisruptionBudget** — Availability guarantees
-
-### Web UI Server
-
-The Web UI is an optional HTTP server that provides a browser-based dashboard for managing queues and messages. It runs on a separate port (default `9325`) and shares the same `QueueManager` instance as the SQS API server.
-
-**Routes:**
-
-| Path | Method | Description |
-|------|--------|-------------|
-| `/` | GET | Queue list page |
-| `/queues/new` | GET | Create queue form |
-| `/queues/create` | POST | Create queue (redirects) |
-| `/queues/{name}` | GET | Queue detail page (attributes, tags, messages) |
-| `/queues/{name}/delete` | POST | Delete queue (redirects) |
-| `/queues/{name}/purge` | POST | Purge queue messages (redirects) |
-| `/queues/{name}/messages` | POST | Send message to queue (redirects) |
-| `/queues/{name}/messages/{handle}/delete` | POST | Delete specific message (redirects) |
-| `/api/queues` | GET | Queue list as JSON (for auto-refresh) |
-| `/api/queues/{name}` | GET | Queue summary as JSON |
-| `/api/queues/{name}/messages` | GET | Messages as JSON (for auto-refresh) |
-| `/static/` | GET | CSS and JavaScript assets |
-
-**Template System:**
-
-HTML templates use Go's `html/template` with a layout + content block pattern. Each page template is parsed into its own `*template.Template` instance (layout + page) to prevent `{{define "content"}}` conflicts across pages.
-
-**Static Assets:**
-
-CSS (`style.css`) and JavaScript (`app.js`) are embedded via `//go:embed` and served at `/static/`. The JavaScript handles theme toggling (dark/light) and auto-refresh polling for queue/message tables.
+- SSM API requests are authenticated with SigV4 against credentials created in the UI or seeded from config.
+  `/agent/*` and `/v1/data-channel/*` are exempt from SigV4 and use their own credentials.
+- Agents authenticate with a per-instance bearer token obtained by redeeming an activation code. Tokens and
+  activation codes are stored as SHA-256 hashes; deregistering an instance revokes its token.
+- Data channel tokens are random, hashed at rest, and rotated by `ResumeSession`.
+- SecureString plaintext is never stored. Changing the KMS master key makes existing values unreadable.
+- The UI has no authentication of its own (like opensqs): expose it only on trusted networks.

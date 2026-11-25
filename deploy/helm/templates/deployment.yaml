@@ -40,11 +40,8 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - --config
-            - /etc/openssm/config.yaml
           ports:
-            - name: sqs
+            - name: api
               containerPort: {{ .Values.openssm.port }}
               protocol: TCP
             - name: ui
@@ -69,7 +66,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           env:
-            - name: SQS__SERVERSECRET
+            - name: CONFIG_PATH
+              value: /etc/openssm/config.yaml
+            - name: SSM__SERVERSECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ if .Values.existingSecret }}{{ .Values.existingSecret }}{{ else }}{{ include "openssm.fullname" . }}{{ end }}

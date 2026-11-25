@@ -1,35 +1,22 @@
-# Docker Compose — OpenSSM with SQLite persistence and initial credentials
-#
-# Purpose:
-#   Run OpenSSM with SQLite persistent storage so messages survive
-#   container restarts. Includes pre-seeded credentials for immediate
-#   access. Useful for development environments that need durability.
+# Docker Compose — OpenSSM with SQLite persistence
 #
 # Usage:
 #   docker compose -f examples/docker-compose/docker-compose.sqlite.yml up
 #
 # Endpoints:
-#   SQS API:  http://localhost:9324
-#   Web UI:   http://localhost:9325
-#   Metrics:  http://localhost:9326/metrics
+#   SSM API:  http://localhost:9330
+#   Web UI:   http://localhost:9331
+#   Metrics:  http://localhost:9332/metrics
 #
-# Credentials:
-#   AccessKeyId:     AKIAIOSFODNN7EXAMPLE
-#   SecretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-#
-# Data persistence:
-#   SQLite database is stored in a named volume at /data/openssm.db
-#   Messages and queues survive container restarts.
-#
-# See: examples/docker-compose/README.md
+# See: examples/README.md
 
 services:
   openssm:
     image: ghcr.io/tguidoux/openssm/openssm-server:latest
     ports:
-      - "9324:9324"  # SQS API
-      - "9325:9325"  # Web UI
-      - "9326:9326"  # Metrics
+      - "9330:9330"  # SSM API + agent API + Session Manager
+      - "9331:9331"  # Web UI
+      - "9332:9332"  # Metrics
     volumes:
       - ./config.sqlite.yaml:/etc/openssm/config.yaml:ro
       - openssm-data:/data
@@ -39,4 +26,3 @@ services:
 
 volumes:
   openssm-data:
-    driver: local

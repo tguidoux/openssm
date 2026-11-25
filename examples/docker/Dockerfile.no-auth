@@ -1,26 +1,15 @@
 # OpenSSM Docker image — no authentication
 #
-# Purpose:
-#   Run OpenSSM with authentication disabled. Any client can send and
-#   receive messages without providing credentials. Ideal for local
-#   development, CI pipelines, and quick testing where you don't want
-#   to manage access keys.
-#
 # Usage:
-#   docker build -f examples/docker/Dockerfile.no-auth -t openssm-no-auth .
-#   docker run -p 9324:9324 -p 9325:9325 openssm-no-auth
-#
-#   Or use the pre-built image:
-#   docker run -p 9324:9324 -p 9325:9325 \
-#     -v $(pwd)/examples/docker/config.no-auth.yaml:/etc/openssm/config.yaml:ro \
-#     -e CONFIG_PATH=/etc/openssm/config.yaml \
-#     ghcr.io/tguidoux/openssm/openssm-server:latest
+#   docker build -f examples/docker/Dockerfile.no-auth -t openssm-no-auth examples/docker
+#   docker run -p 9330:9330 -p 9331:9331 -p 9332:9332 openssm-no-auth
 #
 # Ports:
-#   9324 — SQS API
-#   9325 — Web UI
+#   9330 — SSM API, agent API and Session Manager data channels
+#   9331 — Web UI
+#   9332 — Prometheus metrics
 #
-# See: examples/docker/README.md
+# See: examples/README.md
 
 FROM ghcr.io/tguidoux/openssm/openssm-server:latest
 
@@ -28,4 +17,4 @@ COPY config.no-auth.yaml /etc/openssm/config.yaml
 
 ENV CONFIG_PATH=/etc/openssm/config.yaml
 
-EXPOSE 9324 9325
+EXPOSE 9330 9331 9332

@@ -52,10 +52,12 @@ bazel test //...
 
 ```
 openssm/
-├── apps/go/           # Applications (server, playground examples)
-├── pkgs/v1/           # Shared libraries (config, environment, logger, queue)
+├── apps/go/server/    # openssm-server (SSM API, agent API, session relay, UI)
+├── apps/go/agent/     # openssm-agent binary
+├── pkgs/v1/           # Shared libraries (config, logger, kv, ssm domain services, agent, ssmmessages)
 ├── tools/             # Custom Bazel rules and dev tooling
 ├── deploy/helm/       # Helm chart for Kubernetes deployment
+├── examples/          # Docker, Compose, Kubernetes and AWS CLI examples
 ├── docs/              # Documentation
 └── .github/           # CI workflows, issue/PR templates
 ```
@@ -136,8 +138,8 @@ After adding new Go files or packages, always run `bazel run //:gazelle` to auto
 ### Logging
 
 - Use structured logging via the `pkgs/v1/logger/` package
-- Include context (request IDs, queue names) in log entries
-- Never log sensitive data (secrets, message payloads in production)
+- Include context (request IDs, parameter names, instance/command/session IDs) in log entries
+- Never log sensitive data (secrets, SecureString values, tokens, command output in production)
 
 ### Configuration
 
@@ -175,11 +177,11 @@ After adding new Go files or packages, always run `bazel run //:gazelle` to auto
 bazel test //...
 
 # Run specific package tests
-bazel test //pkgs/v1/queue/tests:go_default_test
+bazel test //pkgs/v1/ssm/parameters/tests:go_default_test
 bazel test //apps/go/server/handlers/tests:go_default_test
 
 # Run with verbose output
-bazel test --test_output=all //pkgs/v1/queue/tests:go_default_test
+bazel test --test_output=all //pkgs/v1/ssm/parameters/tests:go_default_test
 ```
 
 After adding new test files, run `bazel run //:gazelle` to generate BUILD.bazel entries.

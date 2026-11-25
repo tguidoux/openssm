@@ -7,9 +7,9 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - name: sqs
+    - name: api
       port: {{ .Values.service.port }}
-      targetPort: sqs
+      targetPort: api
       protocol: TCP
     - name: ui
       port: {{ .Values.service.uiPort }}

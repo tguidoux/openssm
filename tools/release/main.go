@@ -62,12 +62,22 @@ func fail(format string, args ...any) {
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const (
-	ghcrRepo        = "ghcr.io/tguidoux/openssm/openssm-server"
-	remoteName      = "origin"
-	imagePushTarget = "//apps/go/server:openssm_server_image_push"
-	chartFilePath   = "deploy/helm/Chart.yaml"
-	versionRegex    = `^v[0-9]+\.[0-9]+\.[0-9]+$`
+	ghcrRepo      = "ghcr.io/tguidoux/openssm/openssm-server"
+	remoteName    = "origin"
+	chartFilePath = "deploy/helm/Chart.yaml"
+	versionRegex  = `^v[0-9]+\.[0-9]+\.[0-9]+$`
 )
+
+// releaseImage is an OCI image pushed on every release.
+type releaseImage struct {
+	repo   string
+	target string
+}
+
+var releaseImages = []releaseImage{
+	{repo: ghcrRepo, target: "//apps/go/server:openssm_server_image_push"},
+	{repo: "ghcr.io/tguidoux/openssm/openssm-agent", target: "//apps/go/agent:openssm_agent_image_push"},
+}
 
 // ─── Flags ───────────────────────────────────────────────────────────────────
 
@@ -396,20 +406,18 @@ func main() {
 	if f.skipImage {
 		warn("Skipping image build and push (--skip-image)")
 	} else {
-		if f.dryRun {
-			info("[dry-run] Would run: bazel run %s --stamp --embed_label=%s", imagePushTarget, f.version)
-		} else {
-			info("Building and pushing OCI image to GHCR: %s:%s", ghcrRepo, f.version)
-			if err := runCommandInteractive("bazel", "run", imagePushTarget, "--stamp", "--embed_label="+f.version); err != nil {
-				fail("Failed to push image with version tag: %v", err)
+		for _, img := range releaseImages {
+			if f.dryRun {
+				info("[dry-run] Would run: bazel run %s --stamp --embed_label=%s", img.target, f.version)
+				continue
 			}
-			ok("Image pushed: %s:%s", ghcrRepo, f.version)
-
-			info("Pushing OCI image to GHCR: %s:latest", ghcrRepo)
-			if err := runCommandInteractive("bazel", "run", imagePushTarget, "--stamp", "--embed_label=latest"); err != nil {
-				fail("Failed to push image with latest tag: %v", err)
+			for _, tag := range []string{f.version, "latest"} {
+				info("Building and pushing OCI image to GHCR: %s:%s", img.repo, tag)
+				if err := runCommandInteractive("bazel", "run", img.target, "--stamp", "--embed_label="+tag); err != nil {
+					fail("Failed to push %s:%s: %v", img.repo, tag, err)
+				}
+				ok("Image pushed: %s:%s", img.repo, tag)
 			}
-			ok("Image pushed: %s:latest", ghcrRepo)
 		}
 	}
 

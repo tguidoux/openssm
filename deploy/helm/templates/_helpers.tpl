@@ -66,7 +66,7 @@ Server secret value.
 {{- if .Values.existingSecret -}}
 {{- printf "%s" .Values.existingSecret -}}
 {{- else -}}
-{{- printf "%s" .Values.openssm.sqs.serverSecret -}}
+{{- printf "%s" .Values.openssm.ssm.serverSecret -}}
 {{- end -}}
 {{- end }}
 
@@ -75,7 +75,7 @@ Validate that a server secret is configured.
 Renders to an error message if neither serverSecret nor existingSecret is set.
 */}}
 {{- define "openssm.validateSecret" -}}
-{{- if and (not .Values.existingSecret) (not .Values.openssm.sqs.serverSecret) -}}
-{{- fail "Either openssm.sqs.serverSecret or existingSecret must be set. Refusing to install with an empty server secret (receipt forgery risk)." -}}
+{{- if and (not .Values.existingSecret) (not .Values.openssm.ssm.serverSecret) -}}
+{{- fail "Either openssm.ssm.serverSecret or existingSecret must be set. Refusing to install with an empty server secret (it signs agent/session tokens and wraps KMS keys)." -}}
 {{- end -}}
 {{- end }}

@@ -6,22 +6,25 @@ This document describes the shared packages in `pkgs/v1/` that provide cross-cut
 
 ```
 pkgs/v1/
-├── config/       # Configuration loading from YAML with validation
-├── environment/  # Environment enum (PROD, STAGING, LOCAL)
-├── logger/       # Structured JSON logging
-└── queue/        # Queue engine (see Queue Library docs)
-    ├── queue.go          # Queue struct and methods
-    ├── manager.go        # QueueManager for multi-queue management
-    ├── attributes.go     # QueueAttributes and defaults
-    ├── limits.go         # Limits validation (strict/relaxed)
-    ├── errors.go         # SQS error types and factories
-    ├── dlq/              # RedrivePolicy parsing, MoveTaskManager
-    ├── types/            # Message, SQSError, constants
-    └── store/
-        ├── store.go      # Store interface, StoreFactory, StoreConfig
-        ├── memory/       # In-memory store (FIFO, DLQ, visibility timers)
-        ├── sqlite/       # SQLite persistent store
-        └── badger/       # BadgerDB persistent store
+├── config/        # Configuration loading from YAML, env overrides, validation
+├── environment/   # Environment enum (PROD, STAGING, LOCAL)
+├── logger/        # Structured JSON logging
+├── id/            # UUID / hex ID generation
+├── credentials/   # Access key store (memory, SQLite, Badger) used by SigV4 auth
+├── kv/            # Transactional key-value store + memory/sqlite/badger backends
+├── agentproto/    # JSON wire types shared by the server and openssm-agent
+├── agent/         # openssm-agent library (client, executor, PTY sessions)
+├── ssmmessages/   # Session Manager binary framing and reliable stream
+└── ssm/           # SSM domain services (see docs/architecture.md)
+    ├── types/       # SSMError, error codes, Timestamp, pagination, ARNs, caller
+    ├── kms/         # Local KMS (SecureString encryption)
+    ├── tags/        # Resource tags
+    ├── parameters/  # Parameter Store
+    ├── documents/   # SSM documents
+    ├── instances/   # Activations and managed instances
+    ├── commands/    # Run Command
+    ├── sessions/    # Session Manager lifecycle
+    └── agenthub/    # Wake-ups for long-polling agents
 ```
 
 ---
@@ -61,7 +64,8 @@ type Config[ConfigType any] struct {
 
 #### `NewConfig[ConfigType any](configPath string) Config[ConfigType]`
 
-Reads and parses a YAML config file. Panics on read or parse errors.
+Reads and parses a YAML config file, then applies environment overrides
+(see `ApplyEnvOverrides`). Panics on read or parse errors.
 
 ```go
 cfg := config.NewConfig[MyConfig]("/path/to/config.yaml")
@@ -79,6 +83,13 @@ cfg := config.NewConfigFromEnv[MyConfig]()
 cfg := config.NewConfigFromEnv[MyConfig]("MY_CONFIG_PATH")
 ```
 
+#### `ApplyEnvOverrides(cfg any, environ []string) error`
+
+Overlays `SECTION__KEY[__SUBKEY]=value` environment variables onto a config struct, matching yaml tags
+case-insensitively. Only variables whose first segment matches a top-level key are considered; scalar fields
+(string, bool, ints, floats, and pointers to them) can be overridden. Example: `SSM__SERVERSECRET=...`
+overrides `ssm.serverSecret`.
+
 ### Constants
 
 | Constant | Value |
@@ -92,15 +103,15 @@ AWS endpoint URLs for local environment:
 
 | Constant | Value |
 |----------|-------|
-| `LocalAWSSQSEndpointURL` | `http://localhost:9324` |
+| `LocalAWSSSMEndpointURL` | `http://localhost:9330` |
 
 ### Endpoint Functions
 
 | Function | LOCAL | STAGING/PROD |
 |----------|-------|--------------|
 | `GetRegion(env)` | `""` | `us-east-1` |
-| `GetSQSRegion(env)` | `""` | `us-east-1` |
-| `GetAWSSQSEndpointURL(env)` | Local URL | `""` |
+| `GetSSMRegion(env)` | `""` | `us-east-1` |
+| `GetAWSSSMEndpointURL(env)` | Local URL | `""` |
 
 ---
 
@@ -229,7 +240,7 @@ JSON on `stdout`. Example:
   "level": "INFO",
   "msg": "Server started",
   "logger.name": "openssm-server",
-  "extra": {"port": "9324"}
+  "extra": {"port": "9330"}
 }
 ```
 
@@ -242,7 +253,7 @@ All methods take `context.Context` as first argument:
 ```go
 log := logger.NewContextual("my-service")
 log.Info(ctx, "Request received", map[string]any{"method": "POST", "path": "/"})
-log.Infof(ctx, "Queue %s created", queueName)
+log.Infof(ctx, "Parameter %s created", name)
 log.Error(ctx, "Failed to process", map[string]any{"error": err.Error()})
 log.Fatal(ctx, "Critical failure")  // Calls os.Exit(1)
 ```
@@ -266,8 +277,8 @@ Same API as contextual logger but without `context.Context`:
 
 ```go
 log := logger.NewUncontextual("my-service")
-log.Info("Server started", map[string]any{"port": "9324"})
-log.Infof("Queue %s created", queueName)
+log.Info("Server started", map[string]any{"port": "9330"})
+log.Infof("Parameter %s created", name)
 log.Error("Failed", map[string]any{"error": err.Error()})
 ```
 
@@ -293,41 +304,49 @@ log.Info("Step 1").
 
 ---
 
-## queue
+## kv
 
-**Import:** `github.com/tguidoux/openssm/pkgs/v1/queue`
+**Import:** `github.com/tguidoux/openssm/pkgs/v1/kv`
 
-The queue engine package provides the core SQS-compatible messaging functionality. It can be used as a standalone Go library or as the backend for the OpenSSM server.
+A minimal transactional key-value abstraction used by every SSM domain service. Keys are grouped into buckets;
+values are bytes (domain packages store JSON via `kv.GetJSON`, `kv.PutJSON`, `kv.ListJSON`).
 
-### Sub-packages
+```go
+type Store interface {
+    View(fn func(r Reader) error) error   // read-only transaction
+    Update(fn func(tx Tx) error) error    // atomic read-write transaction (rolled back on error)
+    Close() error
+}
+```
 
-| Package | Import Path | Description |
-|---------|-------------|-------------|
-| `queue` | `.../pkgs/v1/queue` | `QueueManager`, `Queue`, `QueueAttributes`, `Limits`, error types |
-| `queue/types` | `.../pkgs/v1/queue/types` | `Message`, `MessageAttribute`, `SQSError` interface, constants |
-| `queue/dlq` | `.../pkgs/v1/queue/dlq` | `RedrivePolicy` struct and parser |
-| `queue/store` | `.../pkgs/v1/queue/store` | `Store` interface, `StoreFactory`, `StoreConfig`, `RedriveFunc` |
-| `queue/store/memory` | `.../pkgs/v1/queue/store/memory` | In-memory `MemoryStore` implementation |
-| `queue/store/sqlite` | `.../pkgs/v1/queue/store/sqlite` | Persistent `SQLiteStore` implementation |
+| Backend | Package | Notes |
+|---------|---------|-------|
+| Memory | `kv/memory` | Single RWMutex; buffered writes give rollback semantics |
+| SQLite | `kv/sqlite` | One `kv(bucket, key, value)` table, WAL mode, byte-range prefix scans |
+| Badger | `kv/badger` | `kv:<bucket>\x00<key>` keys, retries on `ErrConflict` |
 
-### Key Types
+`kv/kvtest.Run` is a conformance suite every backend must pass. **Never call `View`/`Update` from inside
+another transaction** (the memory backend would deadlock) — domain packages expose `...Tx` helpers
+(`kms.EncryptTx`, `tags.SetTx`, `instances.GetTx`, …) that join the caller's transaction.
 
-- **`QueueManager`** — Manages multiple queues, creates stores via `StoreFactory`
-- **`Queue`** — Single queue with attributes, tags, and underlying `Store`
-- **`Store` interface** — Storage contract (SendMessage, ReceiveMessages, DeleteMessage, etc.)
-- **`StoreFactory`** — Function type that creates a `Store` per queue
-- **`StoreConfig`** — FIFO/DLQ configuration passed to stores
-- **`RedrivePolicy`** — DLQ configuration parsed from JSON
+---
 
-### Features
+## ssmmessages
 
-- 20 SQS API actions implemented
-- FIFO queues with message groups, deduplication, and sequence numbers
-- Dead-letter queues with automatic redrive
-- Message attributes and system attributes
-- Dual protocol support (Query + JSON)
-- Long polling with `WaitTimeSeconds`
-- Pluggable storage (MemoryStore + SQLiteStore)
-- Signed receipt handles (HMAC-SHA256)
+**Import:** `github.com/tguidoux/openssm/pkgs/v1/ssmmessages`
 
-> **See:** [Queue Library](queue-library.md) for detailed API documentation and usage examples.
+Implements the Session Manager data channel framing (`ClientMessage`, 120-byte header + payload, SHA-256 digest),
+acknowledge / channel_closed / handshake payloads, and `Stream` — a reliable ordered stream with acknowledgements,
+retransmission and de-duplication. It is wire compatible with `aws/session-manager-plugin`; see
+[protocol.md](protocol.md#session-manager-data-channel).
+
+---
+
+## agent
+
+**Import:** `github.com/tguidoux/openssm/pkgs/v1/agent`
+
+The `openssm-agent` implementation: `Client` (agent API), `Agent` (registration, heartbeats, long poll),
+`Executor` (`aws:runShellScript`, `aws:runPowerShellScript`) and `ShellSessionHandler` (PTY sessions). See
+[agent.md](agent.md).
+

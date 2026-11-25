@@ -35,7 +35,7 @@ spec:
               service:
                 name: {{ include "openssm.fullname" $ }}
                 port:
-                  name: sqs
+                  name: api
           {{- end }}
     {{- end }}
 {{- end }}

@@ -1,7 +1,7 @@
 # OpenSSM Helm Chart Values
 # This file contains default configuration values for the OpenSSM Helm chart.
 
-# -- Number of replicas (warning: with memory storage, each pod has its own independent state — use sqlite/badger with PVC for shared state)
+# -- Number of replicas. OpenSSM keeps state in a single local database, so run 1 replica (use sqlite/badger with a PVC for persistence).
 replicaCount: 1
 
 image:
@@ -49,12 +49,12 @@ securityContext:
 service:
   # -- Service type
   type: ClusterIP
-  # -- SQS API port
-  port: 9324
+  # -- SSM API port (also serves the agent API and Session Manager data channels)
+  port: 9330
   # -- UI port
-  uiPort: 9325
+  uiPort: 9331
   # -- Metrics port
-  metricsPort: 9326
+  metricsPort: 9332
   # -- Health check port
   healthPort: 8001
 
@@ -63,13 +63,13 @@ openssm:
   # -- Server host
   host: "0.0.0.0"
   # -- Server port
-  port: 9324
+  port: 9330
 
-  # SQS configuration
-  sqs:
-    # -- External node address (set to the service DNS or ingress host)
+  # SSM configuration
+  ssm:
+    # -- External address clients and agents use (service DNS or ingress host, host:port or URL)
     nodeAddress: ""
-    # -- AWS account ID used in queue URLs
+    # -- AWS account ID used in ARNs
     accountId: "123456789012"
     # -- AWS region
     region: "us-east-1"
@@ -79,12 +79,46 @@ openssm:
     sqlitePath: "/data/openssm.db"
     # -- BadgerDB directory path (used when storageType is "badger")
     badgerPath: "/data/badger"
-    # -- Enforce SQS limits strictly
-    strictLimits: true
-    # -- Server secret for signing receipt handles (REQUIRED in production)
+    # -- Server secret: signs agent/session tokens and wraps KMS keys (REQUIRED)
     # Set this value, or use existingSecret to reference a Kubernetes Secret.
     # If both are empty, the chart will fail to render.
     serverSecret: ""
+
+  # Local KMS used for SecureString parameters
+  kms:
+    # -- Create unknown key IDs/aliases on first use instead of returning InvalidKeyId
+    autoCreateKeys: false
+    # -- Customer keys created at startup
+    keys: []
+    # - alias: "alias/my-app"
+    #   description: "My application key"
+
+  # Parameter Store
+  parameters:
+    # -- Default tier: Standard, Advanced, or Intelligent-Tiering
+    defaultTier: "Standard"
+    # -- Maximum Standard parameters (0 = unlimited)
+    maxStandardParameters: 10000
+    # -- Maximum Advanced parameters (0 = unlimited)
+    maxAdvancedParameters: 100000
+    # -- Parameters created at startup (skipped if they exist)
+    startup: []
+    # - name: "/my-app/prod/url"
+    #   value: "https://example.com"
+    #   type: "String"
+
+  # Managed instances
+  agents:
+    # -- Seconds without heartbeat before an instance is ConnectionLost
+    pingTimeoutSeconds: 120
+
+  # Session Manager
+  sessions:
+    # -- StreamUrl base returned by StartSession. session-manager-plugin only
+    # connects to hosts shaped like "ssmmessages.<region>.<domain>" (or hosts
+    # in AWS_SSM_PLUGIN_ADDITIONAL_STREAM_HOSTS), e.g.
+    # "wss://ssmmessages.us-east-1.openssm.example.com". Defaults to the API endpoint.
+    streamUrlBase: ""
 
   # -- Log level: "debug", "info", "warn", "error"
   logLevel: "info"
@@ -97,12 +131,12 @@ openssm:
   # Web UI server
   ui:
     enabled: true
-    port: 9325
+    port: 9331
 
   # Prometheus metrics server
   metrics:
     enabled: true
-    port: 9326
+    port: 9332
 
   # -- Environment: "local", "staging", "prod"
   environment: "prod"
@@ -120,33 +154,55 @@ openssm:
     requestsPerSecond: 1000
     # -- Burst capacity
     burst: 100
-    # -- Per-queue rate limiting (vs global)
-    perQueue: false
+    # -- Per-action rate limiting (vs global)
+    perAction: false
+
+  # SigV4 authentication
+  auth:
+    # -- Require SigV4-signed requests
+    enabled: true
 
   # TLS configuration
   tls:
-    # -- Enable TLS for the SQS API server
+    # -- Enable TLS for the SSM API server
     enabled: false
     # -- TLS certificate file path
     certFile: ""
     # -- TLS private key file path
     keyFile: ""
 
-  # Startup queues to create on boot
-  queues:
-    autoCreate: true
-    startup: []
-    # - name: "my-queue"
-    #   attributes:
-    #     VisibilityTimeout: "30"
-    #     MessageRetentionPeriod: "345600"
-    # - name: "my-fifo-queue.fifo"
-    #   attributes:
-    #     FifoQueue: "true"
-    #     ContentBasedDeduplication: "true"
+# Optional openssm-agent DaemonSet (registers every node as a managed instance)
+agent:
+  # -- Deploy openssm-agent as a DaemonSet
+  enabled: false
+  image:
+    # -- Agent image repository
+    repository: ghcr.io/tguidoux/openssm/openssm-agent
+    # -- Agent image tag (defaults to chart appVersion)
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+  # -- Server URL the agent connects to (defaults to the in-cluster service)
+  serverUrl: ""
+  # -- Secret with "activationId" and "activationCode" keys (from aws ssm create-activation)
+  activationSecret: ""
+  # -- Disable Session Manager sessions on agents
+  disableSessions: false
+  # -- Agent resources
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  # -- Node selector for agent pods
+  nodeSelector: {}
+  # -- Tolerations for agent pods
+  tolerations: []
 
 # -- Existing secret containing the server secret
-# If set, openssm.sqs.serverSecret will be ignored and the secret's key "serverSecret" will be used
+# If set, openssm.ssm.serverSecret will be ignored and the secret's key "serverSecret" will be used
 existingSecret: ""
 
 # Persistence configuration
@@ -165,7 +221,7 @@ persistence:
 
 # Ingress configuration
 ingress:
-  # -- Enable ingress for the SQS API
+  # -- Enable ingress for the SSM API (must support WebSockets for Session Manager)
   enabled: false
   # -- Ingress class name
   className: ""
