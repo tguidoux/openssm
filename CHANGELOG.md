@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-25
+
 ### Added
 - **Parameter Store**: `PutParameter`, `GetParameter`, `GetParameters`, `GetParametersByPath`,
   `DescribeParameters`, `GetParameterHistory`, `DeleteParameter`, `DeleteParameters`,
@@ -26,3 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SigV4 authentication (`ssm` service), per-action or global rate limiting, Prometheus metrics, Web UI.
 - `SECTION__KEY` environment overrides in the config loader.
 - Helm chart with optional agent DaemonSet; Docker, Compose and Kubernetes examples.
+
+[Unreleased]: https://github.com/tguidoux/openssm/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/tguidoux/openssm/releases/tag/v0.1.0
