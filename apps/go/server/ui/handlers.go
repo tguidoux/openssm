@@ -17,6 +17,7 @@ import (
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/sessions"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
 )
@@ -39,6 +40,7 @@ var pages = []string{
 	"commands.html",
 	"command_form.html",
 	"command.html",
+	"sessions.html",
 	"keys.html",
 	"credentials.html",
 	"metrics.html",
@@ -60,11 +62,11 @@ var funcs = template.FuncMap{
 	"list":      func(items ...string) []string { return items },
 	"statusClass": func(status string) string {
 		switch status {
-		case "Success", "Online":
+		case "Success", "Online", "Connected":
 			return "badge-success"
-		case "Failed", "TimedOut", "ConnectionLost", "Cancelled":
+		case "Failed", "TimedOut", "ConnectionLost", "Cancelled", "Terminated":
 			return "badge-danger"
-		case "InProgress", "Pending", "Cancelling", "Delayed":
+		case "InProgress", "Pending", "Cancelling", "Delayed", "Connecting", "Disconnected", "Terminating":
 			return "badge-warning"
 		}
 		return "badge-standard"
@@ -94,6 +96,7 @@ type Deps struct {
 	Documents      *documents.Service
 	Instances      *instances.Service
 	Commands       *commands.Service
+	Sessions       *sessions.Service
 	KMS            *kms.Service
 	Tags           *tags.Service
 	Credentials    credentials.CredentialStore
@@ -122,6 +125,9 @@ func (h *handler) routes(mux *http.ServeMux) {
 	}
 	if h.Instances != nil && h.Commands != nil {
 		h.fleetRoutes(mux)
+	}
+	if h.Sessions != nil {
+		h.sessionRoutes(mux)
 	}
 	h.keyRoutes(mux)
 	h.credentialRoutes(mux)

@@ -29,6 +29,8 @@ type ServerConfig struct {
 	KMS KMSConfig `yaml:"kms"`
 	// Agents holds managed instance / agent settings.
 	Agents AgentsConfig `yaml:"agents"`
+	// Sessions holds Session Manager settings.
+	Sessions SessionsConfig `yaml:"sessions"`
 	// RequestLogging controls structured HTTP request logging.
 	RequestLogging RequestLoggingConfig `yaml:"requestLogging"`
 	// RateLimit controls per-action and global rate limiting.
@@ -68,6 +70,16 @@ type AgentsConfig struct {
 	PingTimeoutSeconds int `yaml:"pingTimeoutSeconds"`
 	// LatestAgentVersion drives IsLatestVersion in DescribeInstanceInformation.
 	LatestAgentVersion string `yaml:"latestAgentVersion"`
+}
+
+// SessionsConfig configures Session Manager.
+type SessionsConfig struct {
+	// StreamURLBase overrides the scheme/host of StreamUrl returned by
+	// StartSession (e.g. "wss://ssmmessages.us-east-1.openssm.example.com").
+	// session-manager-plugin only connects to hosts shaped like
+	// "ssmmessages.<region>.<domain>" (or hosts listed in
+	// AWS_SSM_PLUGIN_ADDITIONAL_STREAM_HOSTS). Defaults to the API endpoint.
+	StreamURLBase string `yaml:"streamUrlBase"`
 }
 
 // KMSConfig configures the local key service used for SecureString values.

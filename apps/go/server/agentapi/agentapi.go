@@ -61,20 +61,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
-// Authenticated wraps next with bearer-token authentication. Exported so the
-// session data channel can reuse it.
-func (h *Handler) Authenticated(next http.HandlerFunc) http.Handler {
-	return h.authenticated(next)
+// InstanceFromRequest authenticates the bearer token of r and returns the
+// instance ID (used by the session data channel endpoint).
+func (h *Handler) InstanceFromRequest(r *http.Request) (string, error) {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return "", errors.New("missing bearer token")
+	}
+	return h.instances.Authenticate(token)
 }
 
 func (h *Handler) authenticated(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
-			writeError(w, http.StatusUnauthorized, "Unauthorized", "missing bearer token")
-			return
-		}
-		instanceID, err := h.instances.Authenticate(token)
+		instanceID, err := h.InstanceFromRequest(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "Unauthorized", "invalid or revoked agent token")
 			return

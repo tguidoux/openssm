@@ -51,7 +51,9 @@ func main() {
 		HeartbeatInterval: *heartbeat,
 		Executor:          &agent.Executor{Shell: *shell, WorkDir: *workDir},
 	}
-	_ = noSessions
+	if !*noSessions {
+		cfg.SessionHandler = &agent.ShellSessionHandler{Shell: *shell, Log: log}
+	}
 	a := agent.New(cfg, log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

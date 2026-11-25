@@ -19,6 +19,7 @@ import (
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/sessions"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
 )
@@ -37,6 +38,7 @@ type Services struct {
 	Documents  *documents.Service
 	Instances  *instances.Service
 	Commands   *commands.Service
+	Sessions   *sessions.Service
 	Tags       *tags.Service
 }
 
@@ -64,6 +66,9 @@ func NewHandler(svc Services, m *metrics.Collector, log logger.LoggerInterface) 
 	}
 	if svc.Commands != nil {
 		registerCommands(h, svc.Commands)
+	}
+	if svc.Sessions != nil {
+		registerSessions(h, svc.Sessions)
 	}
 	return h
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/tguidoux/openssm/apps/go/server/health"
 	"github.com/tguidoux/openssm/apps/go/server/metrics"
 	"github.com/tguidoux/openssm/apps/go/server/middleware"
+	"github.com/tguidoux/openssm/apps/go/server/sessionws"
 	tlsconfig "github.com/tguidoux/openssm/apps/go/server/tls"
 	"github.com/tguidoux/openssm/apps/go/server/ui"
 	"github.com/tguidoux/openssm/pkgs/v1/agentproto"
@@ -28,6 +29,7 @@ import (
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/sessions"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
 )
@@ -94,9 +96,11 @@ func main() {
 
 	var metricsCollector *metrics.Collector
 	var commandObserver commands.Observer
+	var sessionObserver sessions.Observer
+	var relayMetrics sessionws.Metrics
 	if cfg.Metrics.Enabled {
 		metricsCollector = metrics.NewCollector()
-		commandObserver = metricsCollector
+		commandObserver, sessionObserver, relayMetrics = metricsCollector, metricsCollector, metricsCollector
 	}
 
 	hub := agenthub.New()
@@ -105,19 +109,27 @@ func main() {
 		LatestAgentVersion: cfg.Agents.LatestAgentVersion,
 	})
 	cmdSvc := commands.New(store.kv, docSvc, instSvc, hub, commandObserver)
+	baseURL := endpointURL(cfg.SSM.NodeAddress, cfg.Server.TLS.Enabled)
+	sessSvc := sessions.New(store.kv, docSvc, instSvc, hub, account, sessions.Options{
+		StreamURL: func(id string) string { return streamURL(baseURL, cfg.Sessions.StreamURLBase, id) },
+	}, sessionObserver)
 
 	apiHandler := handlers.NewHandler(handlers.Services{
 		Parameters: paramSvc,
 		Documents:  docSvc,
 		Instances:  instSvc,
 		Commands:   cmdSvc,
+		Sessions:   sessSvc,
 		Tags:       tagSvc,
 	}, metricsCollector, log)
-	agentHandler := agentapi.New(instSvc, cmdSvc, nil, hub, log)
+	agentHandler := agentapi.New(instSvc, cmdSvc, sessSvc, hub, log)
+	relay := sessionws.New(sessSvc, agentHandler.InstanceFromRequest, relayMetrics, log)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", apiHandler)
 	mux.Handle(agentproto.PathPrefix, agentHandler)
+	mux.HandleFunc("GET "+agentproto.PathSession+"{sessionId}", relay.ServeAgent)
+	mux.HandleFunc("GET "+sessionws.ClientPathPrefix+"{sessionId}", relay.ServeClient)
 
 	var middlewares []middleware.Middleware
 	if cfg.RequestLogging.Enabled {
@@ -188,6 +200,7 @@ func main() {
 			Documents:      docSvc,
 			Instances:      instSvc,
 			Commands:       cmdSvc,
+			Sessions:       sessSvc,
 			KMS:            kmsSvc,
 			Tags:           tagSvc,
 			Credentials:    store.credentials,
@@ -220,7 +233,7 @@ func main() {
 	}
 
 	bgCtx, stopBackground := context.WithCancel(context.Background())
-	go runMaintenance(bgCtx, maintenance{params: paramSvc, docs: docSvc, instances: instSvc, commands: cmdSvc}, metricsCollector, log)
+	go runMaintenance(bgCtx, maintenance{params: paramSvc, docs: docSvc, instances: instSvc, commands: cmdSvc, sessions: sessSvc}, metricsCollector, log)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -246,6 +259,7 @@ func main() {
 
 	log.Info("shutting down server...")
 	stopBackground()
+	relay.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -271,6 +285,7 @@ type maintenance struct {
 	docs      *documents.Service
 	instances *instances.Service
 	commands  *commands.Service
+	sessions  *sessions.Service
 }
 
 // runMaintenance periodically expires parameters and command invocations
@@ -288,6 +303,11 @@ func runMaintenance(ctx context.Context, svc maintenance, m *metrics.Collector, 
 			log.Errorf("command timeout sweep failed: %v", err)
 		} else if n > 0 {
 			log.Infof("timed out %d command invocation(s)", n)
+		}
+		if n, err := svc.sessions.Sweep(); err != nil {
+			log.Errorf("session timeout sweep failed: %v", err)
+		} else if n > 0 {
+			log.Infof("failed %d session(s) that never connected", n)
 		}
 		if m != nil {
 			if counts, err := svc.params.Counts(); err == nil {
@@ -330,6 +350,16 @@ func endpointURL(nodeAddress string, tls bool) string {
 		return "https://" + nodeAddress
 	}
 	return "http://" + nodeAddress
+}
+
+// streamURL builds the Session Manager StreamUrl for a session. The base is
+// sessions.streamUrlBase when set, otherwise the API endpoint with ws(s).
+func streamURL(apiBase, override, sessionID string) string {
+	base := strings.TrimSuffix(override, "/")
+	if base == "" {
+		base = "ws" + strings.TrimPrefix(apiBase, "http")
+	}
+	return base + sessionws.ClientPathPrefix + sessionID
 }
 
 // startServerable starts a server in a goroutine.

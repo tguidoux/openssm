@@ -1,0 +1,49 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Session Manager</h1>
+
+<div class="card">
+    <h2>Start a session</h2>
+    <p class="hint">Sessions are started with the AWS CLI and the official <span class="mono">session-manager-plugin</span>:</p>
+    <pre class="export-block" id="start-session">export AWS_ENDPOINT_URL={{.Endpoint}}
+aws ssm start-session --region {{.Region}} --target mi-xxxxxxxxxxxxxxxxx</pre>
+    <button type="button" class="btn btn-primary btn-copy btn-sm" data-copy="start-session">Copy</button>
+</div>
+
+<div class="actions-bar">
+    <div class="tabs">
+        <a href="/sessions?state=Active" class="btn btn-sm {{if eq .State "Active"}}btn-primary{{else}}btn-secondary{{end}}">Active</a>
+        <a href="/sessions?state=History" class="btn btn-sm {{if eq .State "History"}}btn-primary{{else}}btn-secondary{{end}}">History</a>
+    </div>
+</div>
+
+{{if .Sessions}}
+<table class="table" id="session-table">
+    <thead><tr><th>Session ID</th><th>Target</th><th>Status</th><th>Document</th><th>Owner</th><th>Started</th><th>Ended</th><th></th></tr></thead>
+    <tbody>
+    {{range .Sessions}}
+    <tr>
+        <td data-label="Session ID" class="mono small">{{.SessionID}}</td>
+        <td data-label="Target" class="mono">{{.Target}}</td>
+        <td data-label="Status"><span class="badge {{statusClass .Status}}">{{.Status}}</span></td>
+        <td data-label="Document">{{.DocumentName}}</td>
+        <td data-label="Owner" class="small">{{.Owner}}</td>
+        <td data-label="Started">{{fmtTime .StartDate}}</td>
+        <td data-label="Ended">{{fmtTime .EndDate}}</td>
+        <td data-label="Actions" class="action-cell">
+            {{if eq $.Data.State "Active"}}
+            <form method="POST" action="/sessions/terminate" class="inline" data-confirm="Terminate session {{.SessionID}}?">
+                <input type="hidden" name="id" value="{{.SessionID}}">
+                <button type="submit" class="btn btn-sm btn-danger">Terminate</button>
+            </form>
+            {{end}}
+        </td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+{{else}}
+<p class="empty-state">No {{if eq .State "Active"}}active{{else}}past{{end}} sessions.</p>
+{{end}}
+{{end}}
+{{end}}

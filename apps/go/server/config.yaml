@@ -47,6 +47,13 @@ agents:
   pingTimeoutSeconds: 120
   # latestAgentVersion: "0.1.0"
 
+sessions:
+  # session-manager-plugin only trusts StreamUrl hosts shaped like
+  # ssmmessages.<region>.<domain>. "*.localhost" resolves to 127.0.0.1, so this
+  # works locally without extra setup. Alternatively export
+  # AWS_SSM_PLUGIN_ADDITIONAL_STREAM_HOSTS=localhost and leave this empty.
+  streamUrlBase: "ws://ssmmessages.us-east-1.localhost:9330"
+
 log:
   level: "info"
 

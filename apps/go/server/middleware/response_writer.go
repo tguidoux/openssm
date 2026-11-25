@@ -1,6 +1,11 @@
 package middleware
 
-import "net/http"
+import (
+	"bufio"
+	"errors"
+	"net"
+	"net/http"
+)
 
 // statusResponseWriter wraps an http.ResponseWriter to capture
 // the HTTP status code and the number of bytes written.
@@ -54,4 +59,16 @@ func (w *statusResponseWriter) Flush() {
 // on the wrapped writer.
 func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
+}
+
+// Hijack lets WebSocket upgrades (Session Manager data channels) work behind
+// the request logger.
+func (w *statusResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+	w.statusCode = http.StatusSwitchingProtocols
+	w.wroteHeader = true
+	return h.Hijack()
 }
