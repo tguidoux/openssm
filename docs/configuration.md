@@ -36,9 +36,10 @@ stop the server at startup. The configuration is validated before anything start
 | `nodeAddress` | — (required) | External `host:port` or URL used to build endpoint URLs |
 | `accountId` | — (required) | Account ID used in ARNs |
 | `region` | — (required) | Region used in ARNs and checked in SigV4 scopes |
-| `storageType` | `memory` | `memory`, `sqlite`, or `badger` |
+| `storageType` | `memory` | `memory`, `sqlite`, `badger`, or `postgres` |
 | `sqlitePath` | — | Required when `storageType: sqlite` |
 | `badgerPath` | — | Required when `storageType: badger` |
+| `postgresDsn` | — | Required when `storageType: postgres`. PostgreSQL connection string (pgx DSN) |
 | `serverSecret` | — (required) | Default KMS master key. Use `SSM__SERVERSECRET` in production |
 
 ### `kms`

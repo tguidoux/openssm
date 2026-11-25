@@ -73,12 +73,14 @@ openssm:
     accountId: "123456789012"
     # -- AWS region
     region: "us-east-1"
-    # -- Storage type: "memory", "sqlite", or "badger"
+    # -- Storage type: "memory", "sqlite", "badger", or "postgres"
     storageType: "memory"
     # -- SQLite database path (used when storageType is "sqlite")
     sqlitePath: "/data/openssm.db"
     # -- BadgerDB directory path (used when storageType is "badger")
     badgerPath: "/data/badger"
+    # -- PostgreSQL connection string (used when storageType is "postgres")
+    postgresDsn: ""
     # -- Server secret: signs agent/session tokens and wraps KMS keys (REQUIRED)
     # Set this value, or use existingSecret to reference a Kubernetes Secret.
     # If both are empty, the chart will fail to render.

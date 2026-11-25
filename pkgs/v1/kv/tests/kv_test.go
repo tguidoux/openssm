@@ -1,6 +1,7 @@
 package kv_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	kvbadger "github.com/tguidoux/openssm/pkgs/v1/kv/badger"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/kvtest"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/memory"
+	kvpostgres "github.com/tguidoux/openssm/pkgs/v1/kv/postgres"
 	kvsqlite "github.com/tguidoux/openssm/pkgs/v1/kv/sqlite"
 	_ "modernc.org/sqlite"
 )
@@ -31,6 +33,19 @@ func TestBadgerStore(t *testing.T) {
 		s, err := kvbadger.Open(t.TempDir())
 		require.NoError(t, err)
 		t.Cleanup(func() { s.Close() })
+		return s
+	})
+}
+
+func TestPostgresStore(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set; skipping postgres kv conformance test")
+	}
+	kvtest.Run(t, func(t *testing.T) kv.Store {
+		s, db, err := kvpostgres.Open(dsn)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
 		return s
 	})
 }

@@ -145,12 +145,14 @@ type SSMConfig struct {
 	AccountID string `yaml:"accountId"`
 	// Region is the AWS region used in ARNs.
 	Region string `yaml:"region"`
-	// StorageType is the storage backend ("memory", "sqlite", or "badger").
+	// StorageType is the storage backend ("memory", "sqlite", "badger", or "postgres").
 	StorageType string `yaml:"storageType"`
 	// SQLitePath is the path to the SQLite database file (used when StorageType is "sqlite").
 	SQLitePath string `yaml:"sqlitePath"`
 	// BadgerPath is the directory path for BadgerDB (used when StorageType is "badger").
 	BadgerPath string `yaml:"badgerPath"`
+	// PostgresDSN is the connection string for PostgreSQL (used when StorageType is "postgres").
+	PostgresDSN string `yaml:"postgresDsn"`
 	// ServerSecret signs agent/session tokens and is the default KMS master key.
 	ServerSecret string `yaml:"serverSecret"`
 }
@@ -255,15 +257,18 @@ func (c ServerConfig) Validate() error {
 		return fmt.Errorf("ssm.nodeAddress is required")
 	}
 	switch c.SSM.StorageType {
-	case "", "memory", "sqlite", "badger":
+	case "", "memory", "sqlite", "badger", "postgres":
 	default:
-		return fmt.Errorf("ssm.storageType must be one of: memory, sqlite, badger (got %q)", c.SSM.StorageType)
+		return fmt.Errorf("ssm.storageType must be one of: memory, sqlite, badger, postgres (got %q)", c.SSM.StorageType)
 	}
 	if c.SSM.StorageType == "sqlite" && c.SSM.SQLitePath == "" {
 		return fmt.Errorf("ssm.sqlitePath is required when storageType is sqlite")
 	}
 	if c.SSM.StorageType == "badger" && c.SSM.BadgerPath == "" {
 		return fmt.Errorf("ssm.badgerPath is required when storageType is badger")
+	}
+	if c.SSM.StorageType == "postgres" && c.SSM.PostgresDSN == "" {
+		return fmt.Errorf("ssm.postgresDsn is required when storageType is postgres")
 	}
 	if c.Server.Port < 0 || c.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 0 and 65535")

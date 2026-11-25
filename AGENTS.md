@@ -35,8 +35,8 @@ apps/go/
 └── agent/                       # openssm-agent main
 pkgs/v1/
 ├── config/ environment/ logger/ id/   # Shared infrastructure
-├── credentials/                 # Access keys for SigV4 (memory/sqlite/badger)
-├── kv/                          # Transactional kv store + memory/sqlite/badger + kvtest conformance suite
+├── credentials/                 # Access keys for SigV4 (memory/sqlite/badger/postgres)
+├── kv/                          # Transactional kv store + memory/sqlite/badger/postgres + kvtest conformance suite
 ├── agentproto/                  # Agent API wire types (dependency-free)
 ├── agent/                       # Agent library: client, executor, PTY sessions
 ├── ssmmessages/                 # Session Manager framing + reliable Stream
