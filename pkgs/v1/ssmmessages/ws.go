@@ -8,6 +8,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// writeTimeout bounds a single data write so a peer that stops reading
+// cannot block writers (and everything waiting on them) forever.
+const writeTimeout = 30 * time.Second
+
 func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
 
 // WSConn adapts a gorilla WebSocket connection to Conn. Text frames are
@@ -21,9 +25,9 @@ type WSConn struct {
 // NewWSConn wraps ws and enables keepalive pings.
 func NewWSConn(ws *websocket.Conn) *WSConn {
 	c := &WSConn{ws: ws}
+	// WriteControl is safe to call concurrently with WriteMessage, so pongs
+	// and Close never wait behind a data write blocked on a stalled peer.
 	ws.SetPingHandler(func(data string) error {
-		c.writeMu.Lock()
-		defer c.writeMu.Unlock()
 		return ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(5*time.Second))
 	})
 	return c
@@ -33,6 +37,7 @@ func NewWSConn(ws *websocket.Conn) *WSConn {
 func (c *WSConn) WriteFrame(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
 	return c.ws.WriteMessage(websocket.BinaryMessage, data)
 }
 
@@ -40,6 +45,7 @@ func (c *WSConn) WriteFrame(data []byte) error {
 func (c *WSConn) WriteText(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
 	return c.ws.WriteMessage(websocket.TextMessage, data)
 }
 
@@ -73,8 +79,6 @@ func (c *WSConn) ReadText(timeout time.Duration) ([]byte, error) {
 
 // Close closes the connection after a best-effort close frame.
 func (c *WSConn) Close() error {
-	c.writeMu.Lock()
 	_ = c.ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
-	c.writeMu.Unlock()
 	return c.ws.Close()
 }

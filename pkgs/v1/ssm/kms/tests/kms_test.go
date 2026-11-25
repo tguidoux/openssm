@@ -1,10 +1,12 @@
 package kms_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tguidoux/openssm/pkgs/v1/kv"
 	"github.com/tguidoux/openssm/pkgs/v1/kv/memory"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
@@ -125,4 +127,32 @@ func TestListKeysIncludesAliases(t *testing.T) {
 		aliases = append(aliases, k.Aliases...)
 	}
 	assert.ElementsMatch(t, []string{kms.DefaultSSMAlias, "alias/x"}, aliases)
+}
+
+func TestRolledBackAutoCreatedKeyIsNotReused(t *testing.T) {
+	store := memory.New()
+	s, err := kms.New(store, account, kms.Options{MasterKey: "master", AutoCreateKeys: true})
+	require.NoError(t, err)
+	const ref = "11111111-2222-3333-4444-555555555555"
+
+	// Auto-create a key and encrypt with it, then roll the transaction back.
+	rollback := errors.New("rollback")
+	err = store.Update(func(tx kv.Tx) error {
+		keyID, err := s.ResolveKeyIDTx(tx, ref)
+		require.NoError(t, err)
+		_, err = s.EncryptTx(tx, keyID, []byte("x"), nil)
+		require.NoError(t, err)
+		return rollback
+	})
+	require.ErrorIs(t, err, rollback)
+
+	ct, err := s.Encrypt(ref, []byte("secret"), []byte("/a"))
+	require.NoError(t, err)
+
+	// A fresh service (as after a restart) must decrypt with committed material.
+	s2, err := kms.New(store, account, kms.Options{MasterKey: "master"})
+	require.NoError(t, err)
+	pt, err := s2.Decrypt(ct, []byte("/a"))
+	require.NoError(t, err)
+	assert.Equal(t, "secret", string(pt))
 }

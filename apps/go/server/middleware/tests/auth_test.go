@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tguidoux/openssm/apps/go/server/middleware"
@@ -87,12 +88,15 @@ func (s *fakeCredStore) Close() error           { return nil }
 // SigV4 signing helpers (mirrors the middleware's verification logic)
 // ---------------------------------------------------------------------------
 
+var (
+	testAmzDate = time.Now().UTC().Format("20060102T150405Z")
+	testDate    = testAmzDate[:8]
+)
+
 const (
 	testAlgorithm   = "AWS4-HMAC-SHA256"
 	testService     = "ssm"
 	testRegion      = "us-east-1"
-	testDate        = "20240115"
-	testAmzDate     = "20240115T120000Z"
 	testHost        = "ssm.us-east-1.amazonaws.com"
 	testContentType = "application/x-amz-json-1.1"
 )
@@ -549,4 +553,40 @@ func TestAuthSkipsAgentAndDataChannelPaths(t *testing.T) {
 		wrapped.ServeHTTP(rr, httptest.NewRequest("POST", path, nil))
 		assert.Equal(t, http.StatusOK, rr.Code, path)
 	}
+}
+
+func TestAuthSigV4RejectsStaleTimestamp(t *testing.T) {
+	store := newFakeCredStore(testCredential)
+	wrapped := middleware.Auth(store, "us-east-1", testLogger())(testHandler())
+
+	req := buildSignedRequest("POST", "/", nil, []byte("{}"), testCredential.SecretAccessKey)
+	// A timestamp outside the skew window is rejected even before the
+	// signature check, so a captured request cannot be replayed later.
+	req.Header.Set("X-Amz-Date", time.Now().UTC().Add(-time.Hour).Format("20060102T150405Z"))
+
+	rr := httptest.NewRecorder()
+	wrapped.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Signature expired")
+}
+
+func TestAuthSigV4RequiresSignedTarget(t *testing.T) {
+	store := newFakeCredStore(testCredential)
+	wrapped := middleware.Auth(store, "us-east-1", testLogger())(testHandler())
+
+	req := buildSignedRequest("POST", "/", nil, []byte("{}"), testCredential.SecretAccessKey)
+	req.Header.Set("X-Amz-Target", "AmazonSSM.DeleteParameter")
+
+	rr := httptest.NewRecorder()
+	wrapped.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "x-amz-target")
+}
+
+func TestIsExemptPath(t *testing.T) {
+	assert.True(t, middleware.IsExemptPath("/agent/v1/poll"))
+	assert.True(t, middleware.IsExemptPath("/v1/data-channel/abc"))
+	assert.False(t, middleware.IsExemptPath("/"))
 }

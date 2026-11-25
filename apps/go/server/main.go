@@ -126,7 +126,15 @@ func main() {
 	relay := sessionws.New(sessSvc, agentHandler.InstanceFromRequest, relayMetrics, log)
 
 	mux := http.NewServeMux()
-	mux.Handle("/", apiHandler)
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Paths under the SigV4-exempt prefixes that did not match an agent or
+		// relay route must never fall through to the SSM API.
+		if middleware.IsExemptPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		apiHandler.ServeHTTP(w, r)
+	}))
 	mux.Handle(agentproto.PathPrefix, agentHandler)
 	mux.HandleFunc("GET "+agentproto.PathSession+"{sessionId}", relay.ServeAgent)
 	mux.HandleFunc("GET "+sessionws.ClientPathPrefix+"{sessionId}", relay.ServeClient)

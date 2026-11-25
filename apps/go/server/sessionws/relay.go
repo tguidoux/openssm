@@ -228,31 +228,51 @@ func (r *relay) attach(sd side, conn ssmmessages.Conn) {
 		stream.Close()
 		return
 	}
-	prev := r.streams[sd]
+	// Unpublish the previous stream so concurrent forwards queue up while the
+	// new stream is prepared; publishing it only once its state is complete
+	// keeps sequence numbers and output ordering intact.
+	old := r.streams[sd]
+	r.streams[sd] = nil
+	prev := old
 	if prev == nil {
 		prev = r.last[sd]
 	}
-	if old := r.streams[sd]; old != nil {
+	r.mu.Unlock()
+	if old != nil {
 		old.Close()
 	}
-	r.streams[sd] = stream
-	r.last[sd] = stream
-	queued := r.queued[sd]
-	r.queued[sd] = nil
-	bothUp := r.streams[sideClient] != nil && r.streams[sideAgent] != nil
-	if bothUp {
-		r.grace.Stop()
-	}
-	r.mu.Unlock()
-
 	if prev != nil && sd == sideClient {
 		_ = stream.ResumeFrom(prev)
 	}
+
+	var bothUp bool
+	for {
+		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+			_ = stream.SendControl(ssmmessages.NewChannelClosed(r.sessionID, "Session has been terminated."))
+			stream.Close()
+			return
+		}
+		queued := r.queued[sd]
+		r.queued[sd] = nil
+		if len(queued) == 0 {
+			r.streams[sd] = stream
+			r.last[sd] = stream
+			bothUp = r.streams[sideClient] != nil && r.streams[sideAgent] != nil
+			if bothUp {
+				r.grace.Stop()
+			}
+			r.mu.Unlock()
+			break
+		}
+		r.mu.Unlock()
+		for _, p := range queued {
+			_ = stream.Send(p.typ, p.data)
+		}
+	}
 	if bothUp {
 		_ = r.srv.sessions.SetStatus(r.sessionID, sessions.StatusConnected, "")
-	}
-	for _, p := range queued {
-		_ = stream.Send(p.typ, p.data)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

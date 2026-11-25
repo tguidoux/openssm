@@ -133,6 +133,11 @@ func (h *Handler) handlePoll(w http.ResponseWriter, r *http.Request) {
 	defer deadline.Stop()
 	for {
 		wake := h.hub.Subscribe(instanceID)
+		// Claiming marks work as delivered, so never claim for a client
+		// that has already gone away.
+		if r.Context().Err() != nil {
+			return
+		}
 		resp, err := h.collect(instanceID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "InternalError", err.Error())

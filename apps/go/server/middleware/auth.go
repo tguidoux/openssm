@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
@@ -32,6 +33,10 @@ const (
 	// maxBodySize limits how much of the request body the middleware reads for
 	// signature verification. Matches the request handler's limit.
 	maxBodySize = 1 << 20 // 1 MiB
+	// maxClockSkew is how far X-Amz-Date may drift from the server clock,
+	// matching AWS. It bounds the replay window of a captured request.
+	maxClockSkew  = 15 * time.Minute
+	amzDateFormat = "20060102T150405Z"
 )
 
 // authErrorResponse is the AWS JSON 1.1 error response for authentication failures.
@@ -43,6 +48,11 @@ type authErrorResponse struct {
 // exemptPrefixes are paths authenticated by other means (agent bearer
 // tokens, Session Manager data-channel tokens) rather than SigV4.
 var exemptPrefixes = []string{"/agent/", "/v1/data-channel/"}
+
+// IsExemptPath reports whether path skips SigV4 verification. Handlers that
+// serve SigV4-protected APIs must refuse exempt paths so that unmatched routes
+// under these prefixes cannot reach them unauthenticated.
+func IsExemptPath(path string) bool { return isExempt(path) }
 
 func isExempt(path string) bool {
 	for _, p := range exemptPrefixes {
@@ -80,6 +90,30 @@ func Auth(credStore credentials.CredentialStore, expectedRegion string, log logg
 // ---------------------------------------------------------------------------
 // AWS Signature Version 4 verification
 // ---------------------------------------------------------------------------
+
+// missingSignedHeaders returns the first security-relevant header that is
+// not covered by the signature: host, the timestamp, and X-Amz-Target (which
+// selects the operation) when present.
+func missingSignedHeaders(r *http.Request, signedHeaders string) string {
+	signed := map[string]bool{}
+	for _, h := range strings.Split(signedHeaders, ";") {
+		signed[strings.ToLower(strings.TrimSpace(h))] = true
+	}
+	if !signed["host"] {
+		return "host"
+	}
+	if r.Header.Get("X-Amz-Date") != "" {
+		if !signed["x-amz-date"] {
+			return "x-amz-date"
+		}
+	} else if !signed["date"] {
+		return "date"
+	}
+	if r.Header.Get("X-Amz-Target") != "" && !signed["x-amz-target"] {
+		return "x-amz-target"
+	}
+	return ""
+}
 
 // sigV4Components holds the parsed parts of the Authorization header.
 type sigV4Components struct {
@@ -164,14 +198,38 @@ func verifySigV4(w http.ResponseWriter, r *http.Request, credStore credentials.C
 		}
 	}
 
-	// Build the canonical request
-	canonicalReq := buildCanonicalRequest(r, parts.SignedHeaders, payloadHash)
-
-	// Build the string to sign
 	amzDate := r.Header.Get("X-Amz-Date")
 	if amzDate == "" {
 		amzDate = r.Header.Get("Date")
 	}
+	signedAt, err := time.Parse(amzDateFormat, amzDate)
+	if err != nil {
+		writeAuthError(w, "IncompleteSignature", "X-Amz-Date must be in ISO8601 basic format (YYYYMMDDTHHMMSSZ).")
+		log.Warningf("invalid X-Amz-Date %q for request %s %s", amzDate, r.Method, r.URL.Path)
+		return
+	}
+	if skew := time.Since(signedAt); skew > maxClockSkew || skew < -maxClockSkew {
+		writeAuthError(w, "InvalidSignatureException",
+			"Signature expired: request time is too far from the server time (max skew 15 minutes).")
+		log.Warningf("SigV4 clock skew %s for access key ID %q", skew, parts.AccessKeyID)
+		return
+	}
+	if amzDate[:8] != parts.Date {
+		writeAuthError(w, "InvalidSignatureException", "Credential scope date does not match X-Amz-Date.")
+		log.Warningf("SigV4 scope date %q does not match %q", parts.Date, amzDate)
+		return
+	}
+	if missing := missingSignedHeaders(r, parts.SignedHeaders); missing != "" {
+		writeAuthError(w, "InvalidSignatureException",
+			fmt.Sprintf("Header %q must be included in SignedHeaders.", missing))
+		log.Warningf("SigV4 request does not sign %q", missing)
+		return
+	}
+
+	// Build the canonical request
+	canonicalReq := buildCanonicalRequest(r, parts.SignedHeaders, payloadHash)
+
+	// Build the string to sign
 	stringToSign := fmt.Sprintf("%s\n%s\n%s\n%s",
 		sigV4Algorithm,
 		amzDate,

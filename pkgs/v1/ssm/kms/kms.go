@@ -362,13 +362,10 @@ func (s *Service) putKey(tx kv.Tx, keyID, description string) (*Key, error) {
 }
 
 // keyAEAD returns the (cached) AEAD for keyID, unwrapping its material.
+// The key record is always read through r and the cache is keyed by the
+// wrapped material, so material written by a transaction that later rolls
+// back can never be used for a different, committed key with the same ID.
 func (s *Service) keyAEAD(r kv.Reader, keyID string) (cipher.AEAD, error) {
-	s.mu.RLock()
-	aead, ok := s.cache[keyID]
-	s.mu.RUnlock()
-	if ok {
-		return aead, nil
-	}
 	var k Key
 	err := kv.GetJSON(r, bucketKeys, keyID, &k)
 	if errors.Is(err, kv.ErrNotFound) {
@@ -376,6 +373,14 @@ func (s *Service) keyAEAD(r kv.Reader, keyID string) (cipher.AEAD, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	sum := sha256.Sum256(k.WrappedMaterial)
+	cacheKey := keyID + "\x00" + string(sum[:])
+	s.mu.RLock()
+	aead, ok := s.cache[cacheKey]
+	s.mu.RUnlock()
+	if ok {
+		return aead, nil
 	}
 	ns := s.master.NonceSize()
 	if len(k.WrappedMaterial) < ns {
@@ -390,7 +395,7 @@ func (s *Service) keyAEAD(r kv.Reader, keyID string) (cipher.AEAD, error) {
 		return nil, err
 	}
 	s.mu.Lock()
-	s.cache[keyID] = aead
+	s.cache[cacheKey] = aead
 	s.mu.Unlock()
 	return aead, nil
 }

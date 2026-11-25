@@ -24,6 +24,9 @@ const (
 	bucketInvocations = "invocations"
 	// bucketQueue indexes undelivered work per instance: "<instance>\x00<command>".
 	bucketQueue = "command_queue"
+	// bucketCancelQueue indexes cancellations awaiting delivery, keyed like
+	// bucketQueue, so agent polls never scan the whole invocation history.
+	bucketCancelQueue = "command_cancel_queue"
 )
 
 // Observer receives command lifecycle events (used for metrics).
@@ -339,6 +342,9 @@ func (s *Service) Cancel(ctx context.Context, in *CancelCommandInput) error {
 			} else {
 				inv.CancelRequested = true
 				inv.Status, inv.StatusDetails = StatusCancelling, StatusCancelling
+				if err := tx.Put(bucketCancelQueue, queueKey(iid, cmd.CommandID), nil); err != nil {
+					return err
+				}
 				notify = append(notify, iid)
 			}
 			if err := s.putInvocation(tx, inv); err != nil {
@@ -389,13 +395,16 @@ func (s *Service) Claim(instanceID string) ([]agentproto.CommandPayload, []strin
 			})
 		}
 		// Pending cancellations for delivered invocations.
-		invs, err := kv.ListJSON[invocation](tx, bucketInvocations, "")
+		cancelEntries, err := tx.List(bucketCancelQueue, instanceID+"\x00")
 		if err != nil {
 			return err
 		}
-		for i := range invs {
-			inv := &invs[i]
-			if inv.InstanceID != instanceID || !inv.CancelRequested || inv.CancelDelivered || isTerminal(inv.Status) {
+		for _, e := range cancelEntries {
+			if err := tx.Delete(bucketCancelQueue, e.Key); err != nil {
+				return err
+			}
+			inv, err := s.loadInvocation(tx, strings.TrimPrefix(e.Key, instanceID+"\x00"), instanceID)
+			if err != nil || inv == nil || !inv.CancelRequested || inv.CancelDelivered || isTerminal(inv.Status) {
 				continue
 			}
 			inv.CancelDelivered = true
@@ -421,12 +430,8 @@ func (s *Service) HasWork(instanceID string) (bool, error) {
 			found = true
 			return nil
 		}
-		invs, err := kv.ListJSON[invocation](r, bucketInvocations, "")
-		for i := range invs {
-			if invs[i].InstanceID == instanceID && invs[i].CancelRequested && !invs[i].CancelDelivered && !isTerminal(invs[i].Status) {
-				found = true
-			}
-		}
+		cancels, err := r.List(bucketCancelQueue, instanceID+"\x00")
+		found = len(cancels) > 0
 		return err
 	})
 	return found, err
