@@ -19,7 +19,7 @@ jobs:
   lint:
     name: Lint (nogo)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -52,7 +52,7 @@ jobs:
   bazel-check:
     name: Bazel Format & Gazelle
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository

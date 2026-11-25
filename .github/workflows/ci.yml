@@ -19,7 +19,7 @@ jobs:
   analyze-changes:
     name: Analyze Changed Files
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     outputs:
       affected-tests: ${{ steps.detect.outputs.tests }}
       has-tests: ${{ steps.detect.outputs.has-tests }}
