@@ -15,7 +15,9 @@ import (
 	"github.com/tguidoux/openssm/apps/go/server/protocol"
 	"github.com/tguidoux/openssm/pkgs/v1/id"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/commands"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
@@ -33,6 +35,8 @@ type actionFunc func(ctx context.Context, body []byte) (any, error)
 type Services struct {
 	Parameters *parameters.Service
 	Documents  *documents.Service
+	Instances  *instances.Service
+	Commands   *commands.Service
 	Tags       *tags.Service
 }
 
@@ -54,6 +58,12 @@ func NewHandler(svc Services, m *metrics.Collector, log logger.LoggerInterface) 
 	}
 	if svc.Documents != nil {
 		registerDocuments(h, svc.Documents)
+	}
+	if svc.Instances != nil {
+		registerInstances(h, svc.Instances)
+	}
+	if svc.Commands != nil {
+		registerCommands(h, svc.Commands)
 	}
 	return h
 }

@@ -27,6 +27,8 @@ type ServerConfig struct {
 	Parameters ParametersConfig `yaml:"parameters"`
 	// KMS holds the local key service configuration.
 	KMS KMSConfig `yaml:"kms"`
+	// Agents holds managed instance / agent settings.
+	Agents AgentsConfig `yaml:"agents"`
 	// RequestLogging controls structured HTTP request logging.
 	RequestLogging RequestLoggingConfig `yaml:"requestLogging"`
 	// RateLimit controls per-action and global rate limiting.
@@ -57,6 +59,15 @@ type StartupParameter struct {
 	KeyID       string            `yaml:"keyId"`
 	Tier        string            `yaml:"tier"`
 	Tags        map[string]string `yaml:"tags"`
+}
+
+// AgentsConfig configures managed instances and openssm-agent behaviour.
+type AgentsConfig struct {
+	// PingTimeoutSeconds is how long without a heartbeat before an instance
+	// is reported as ConnectionLost (default 120).
+	PingTimeoutSeconds int `yaml:"pingTimeoutSeconds"`
+	// LatestAgentVersion drives IsLatestVersion in DescribeInstanceInformation.
+	LatestAgentVersion string `yaml:"latestAgentVersion"`
 }
 
 // KMSConfig configures the local key service used for SecureString values.

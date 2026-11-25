@@ -11,16 +11,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tguidoux/openssm/apps/go/server/agentapi"
 	"github.com/tguidoux/openssm/apps/go/server/handlers"
 	"github.com/tguidoux/openssm/apps/go/server/health"
 	"github.com/tguidoux/openssm/apps/go/server/metrics"
 	"github.com/tguidoux/openssm/apps/go/server/middleware"
 	tlsconfig "github.com/tguidoux/openssm/apps/go/server/tls"
 	"github.com/tguidoux/openssm/apps/go/server/ui"
+	"github.com/tguidoux/openssm/pkgs/v1/agentproto"
 	"github.com/tguidoux/openssm/pkgs/v1/config"
 	env "github.com/tguidoux/openssm/pkgs/v1/environment"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/agenthub"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/commands"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
@@ -88,18 +93,31 @@ func main() {
 	seedInitialCredentials(store.credentials, cfg.Auth, cfg.SSM.Region, cfg.SSM.AccountID, log)
 
 	var metricsCollector *metrics.Collector
+	var commandObserver commands.Observer
 	if cfg.Metrics.Enabled {
 		metricsCollector = metrics.NewCollector()
+		commandObserver = metricsCollector
 	}
+
+	hub := agenthub.New()
+	instSvc := instances.New(store.kv, tagSvc, instances.Options{
+		PingTimeout:        time.Duration(cfg.Agents.PingTimeoutSeconds) * time.Second,
+		LatestAgentVersion: cfg.Agents.LatestAgentVersion,
+	})
+	cmdSvc := commands.New(store.kv, docSvc, instSvc, hub, commandObserver)
 
 	apiHandler := handlers.NewHandler(handlers.Services{
 		Parameters: paramSvc,
 		Documents:  docSvc,
+		Instances:  instSvc,
+		Commands:   cmdSvc,
 		Tags:       tagSvc,
 	}, metricsCollector, log)
+	agentHandler := agentapi.New(instSvc, cmdSvc, nil, hub, log)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", apiHandler)
+	mux.Handle(agentproto.PathPrefix, agentHandler)
 
 	var middlewares []middleware.Middleware
 	if cfg.RequestLogging.Enabled {
@@ -168,6 +186,8 @@ func main() {
 		uiServer = ui.NewServer(uiPort, ui.Deps{
 			Parameters:     paramSvc,
 			Documents:      docSvc,
+			Instances:      instSvc,
+			Commands:       cmdSvc,
 			KMS:            kmsSvc,
 			Tags:           tagSvc,
 			Credentials:    store.credentials,
@@ -200,7 +220,7 @@ func main() {
 	}
 
 	bgCtx, stopBackground := context.WithCancel(context.Background())
-	go runMaintenance(bgCtx, paramSvc, docSvc, metricsCollector, log)
+	go runMaintenance(bgCtx, maintenance{params: paramSvc, docs: docSvc, instances: instSvc, commands: cmdSvc}, metricsCollector, log)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -245,23 +265,39 @@ func main() {
 	log.Info("server stopped")
 }
 
-// runMaintenance periodically deletes expired parameters and refreshes
-// resource gauges until ctx is cancelled.
-func runMaintenance(ctx context.Context, paramSvc *parameters.Service, docSvc *documents.Service, m *metrics.Collector, log logger.LoggerInterface) {
+// maintenance groups the services swept by runMaintenance.
+type maintenance struct {
+	params    *parameters.Service
+	docs      *documents.Service
+	instances *instances.Service
+	commands  *commands.Service
+}
+
+// runMaintenance periodically expires parameters and command invocations
+// and refreshes resource gauges until ctx is cancelled.
+func runMaintenance(ctx context.Context, svc maintenance, m *metrics.Collector, log logger.LoggerInterface) {
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
 	for {
-		if deleted, err := paramSvc.Sweep(ctx); err != nil {
+		if deleted, err := svc.params.Sweep(ctx); err != nil {
 			log.Errorf("parameter expiration sweep failed: %v", err)
 		} else if len(deleted) > 0 {
 			log.Info("deleted expired parameters", map[string]any{"names": deleted})
 		}
+		if n, err := svc.commands.Sweep(); err != nil {
+			log.Errorf("command timeout sweep failed: %v", err)
+		} else if n > 0 {
+			log.Infof("timed out %d command invocation(s)", n)
+		}
 		if m != nil {
-			if counts, err := paramSvc.Counts(); err == nil {
+			if counts, err := svc.params.Counts(); err == nil {
 				m.SetParameterCounts(counts)
 			}
-			if n, err := docSvc.CountOwned(); err == nil {
+			if n, err := svc.docs.CountOwned(); err == nil {
 				m.SetDocumentCount(n)
+			}
+			if counts, err := svc.instances.PingCounts(); err == nil {
+				m.SetInstanceCounts(counts)
 			}
 		}
 		select {

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/tguidoux/openssm/pkgs/v1/logger"
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
+	"github.com/tguidoux/openssm/pkgs/v1/logger"
 )
 
 // seedInitialCredentials imports pre-configured credentials into the store

@@ -1,0 +1,19 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = [
+        "agent.go",
+        "client.go",
+        "executor.go",
+        "platform.go",
+        "proc_unix.go",
+        "proc_windows.go",
+    ],
+    importpath = "github.com/tguidoux/openssm/pkgs/v1/agent",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkgs/v1/agentproto:go_default_library",
+        "//pkgs/v1/logger:go_default_library",
+    ],
+)

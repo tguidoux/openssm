@@ -12,7 +12,9 @@ import (
 
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/commands"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/documents"
+	"github.com/tguidoux/openssm/pkgs/v1/ssm/instances"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/kms"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/parameters"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/tags"
@@ -33,6 +35,10 @@ var pages = []string{
 	"documents.html",
 	"document.html",
 	"document_form.html",
+	"instances.html",
+	"commands.html",
+	"command_form.html",
+	"command.html",
 	"keys.html",
 	"credentials.html",
 	"metrics.html",
@@ -41,7 +47,7 @@ var pages = []string{
 var templates = mustParseTemplates()
 
 var funcs = template.FuncMap{
-	"pathEscape": url.PathEscape,
+	"pathEscape":  url.PathEscape,
 	"queryEscape": url.QueryEscape,
 	"fmtTime": func(t *types.Timestamp) string {
 		if t == nil {
@@ -52,6 +58,17 @@ var funcs = template.FuncMap{
 	"fmtGoTime": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
 	"join":      strings.Join,
 	"list":      func(items ...string) []string { return items },
+	"statusClass": func(status string) string {
+		switch status {
+		case "Success", "Online":
+			return "badge-success"
+		case "Failed", "TimedOut", "ConnectionLost", "Cancelled":
+			return "badge-danger"
+		case "InProgress", "Pending", "Cancelling", "Delayed":
+			return "badge-warning"
+		}
+		return "badge-standard"
+	},
 }
 
 func mustParseTemplates() map[string]*template.Template {
@@ -75,6 +92,8 @@ func mustParseTemplates() map[string]*template.Template {
 type Deps struct {
 	Parameters     *parameters.Service
 	Documents      *documents.Service
+	Instances      *instances.Service
+	Commands       *commands.Service
 	KMS            *kms.Service
 	Tags           *tags.Service
 	Credentials    credentials.CredentialStore
@@ -101,6 +120,9 @@ func (h *handler) routes(mux *http.ServeMux) {
 	if h.Documents != nil {
 		h.documentRoutes(mux)
 	}
+	if h.Instances != nil && h.Commands != nil {
+		h.fleetRoutes(mux)
+	}
 	h.keyRoutes(mux)
 	h.credentialRoutes(mux)
 	mux.HandleFunc("GET /metrics", h.handleMetrics)
@@ -115,7 +137,9 @@ type page struct {
 	Success        string
 	MetricsEnabled bool
 	CLIEnvVars     string
-	Data           any
+	// Refresh, when > 0, reloads the page every N seconds (live status pages).
+	Refresh int
+	Data    any
 }
 
 func (h *handler) newPage(r *http.Request, title, nav string, data any) *page {

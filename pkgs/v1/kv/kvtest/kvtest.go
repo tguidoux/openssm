@@ -71,6 +71,48 @@ func Run(t *testing.T, newStore func(t *testing.T) kv.Store) {
 		assert.Equal(t, []string{"/app/a", "/app/b/x", "/app/c"}, keys)
 	})
 
+	t.Run("ListPrefixWithNULSeparator", func(t *testing.T) {
+		s := newStore(t)
+		require.NoError(t, s.Update(func(tx kv.Tx) error {
+			for _, k := range []string{"a\x00one", "a\x00two", "ab\x00x", "a", "b\x00y"} {
+				if err := tx.Put("n", k, []byte(k)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+		require.NoError(t, s.View(func(r kv.Reader) error {
+			entries, err := r.List("n", "a\x00")
+			require.NoError(t, err)
+			keys := make([]string, len(entries))
+			for i, e := range entries {
+				keys[i] = e.Key
+			}
+			assert.Equal(t, []string{"a\x00one", "a\x00two"}, keys)
+			v, err := r.Get("n", "a\x00two")
+			require.NoError(t, err)
+			assert.Equal(t, "a\x00two", string(v))
+			return nil
+		}))
+	})
+
+	t.Run("ListPrefixHighBytes", func(t *testing.T) {
+		s := newStore(t)
+		require.NoError(t, s.Update(func(tx kv.Tx) error {
+			for _, k := range []string{"é/1", "é/2", "f"} {
+				if err := tx.Put("u", k, []byte(k)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+		require.NoError(t, s.View(func(r kv.Reader) error {
+			entries, err := r.List("u", "é/")
+			assert.Len(t, entries, 2)
+			return err
+		}))
+	})
+
 	t.Run("RollbackOnError", func(t *testing.T) {
 		s := newStore(t)
 		require.NoError(t, s.Update(func(tx kv.Tx) error { return tx.Put("b", "keep", []byte("1")) }))

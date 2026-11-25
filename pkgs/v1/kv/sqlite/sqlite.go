@@ -102,10 +102,17 @@ func (r *reader) Get(bucket, key string) ([]byte, error) {
 	return v, nil
 }
 
+// List uses a byte-range scan rather than substr()/LIKE: SQLite string
+// functions are undefined for text containing NUL bytes, which domain
+// packages use as key separators, while BINARY comparisons are memcmp-based.
 func (r *reader) List(bucket, prefix string) ([]kv.Entry, error) {
-	rows, err := r.q.Query(
-		`SELECT key, value FROM kv WHERE bucket = ? AND substr(key, 1, ?) = ? ORDER BY key`,
-		bucket, len(prefix), prefix)
+	query := `SELECT key, value FROM kv WHERE bucket = ? AND key >= ? ORDER BY key`
+	args := []any{bucket, prefix}
+	if end, ok := prefixEnd(prefix); ok {
+		query = `SELECT key, value FROM kv WHERE bucket = ? AND key >= ? AND key < ? ORDER BY key`
+		args = append(args, end)
+	}
+	rows, err := r.q.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing %s/%s: %w", bucket, prefix, err)
 	}
@@ -116,7 +123,6 @@ func (r *reader) List(bucket, prefix string) ([]kv.Entry, error) {
 		if err := rows.Scan(&e.Key, &e.Value); err != nil {
 			return nil, fmt.Errorf("scanning %s: %w", bucket, err)
 		}
-		// substr() counts characters, not bytes; double-check the prefix.
 		if strings.HasPrefix(e.Key, prefix) {
 			out = append(out, e)
 		}
@@ -148,4 +154,17 @@ func (t *tx) Delete(bucket, key string) error {
 		return fmt.Errorf("deleting %s/%s: %w", bucket, key, err)
 	}
 	return nil
+}
+
+// prefixEnd returns the smallest string greater than every string with the
+// given prefix, or false when no such bound exists (empty or all 0xff).
+func prefixEnd(prefix string) (string, bool) {
+	b := []byte(prefix)
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] < 0xff {
+			b[i]++
+			return string(b[:i+1]), true
+		}
+	}
+	return "", false
 }

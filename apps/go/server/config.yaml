@@ -43,6 +43,10 @@ parameters:
       tags:
         env: "dev"
 
+agents:
+  pingTimeoutSeconds: 120
+  # latestAgentVersion: "0.1.0"
+
 log:
   level: "info"
 

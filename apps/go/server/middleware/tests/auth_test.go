@@ -16,8 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tguidoux/openssm/apps/go/server/middleware"
-	"github.com/tguidoux/openssm/pkgs/v1/logger"
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
+	"github.com/tguidoux/openssm/pkgs/v1/logger"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
 )
 
@@ -539,4 +539,14 @@ func TestAuthSigV4SetsCaller(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, testCredential.AccessKeyID, got.AccessKeyID)
 	assert.Equal(t, testCredential.Label, got.Name)
+}
+
+func TestAuthSkipsAgentAndDataChannelPaths(t *testing.T) {
+	store := newFakeCredStore(testCredential)
+	wrapped := middleware.Auth(store, "us-east-1", testLogger())(testHandler())
+	for _, path := range []string{"/agent/v1/poll", "/v1/data-channel/sess-1"} {
+		rr := httptest.NewRecorder()
+		wrapped.ServeHTTP(rr, httptest.NewRequest("POST", path, nil))
+		assert.Equal(t, http.StatusOK, rr.Code, path)
+	}
 }

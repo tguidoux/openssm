@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 	"github.com/tguidoux/openssm/pkgs/v1/logger"
 	"github.com/tguidoux/openssm/pkgs/v1/ssm/types"
-	"github.com/tguidoux/openssm/pkgs/v1/credentials"
 )
 
 // Auth implements credential-based authentication for SSM API requests using
@@ -40,13 +40,26 @@ type authErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// exemptPrefixes are paths authenticated by other means (agent bearer
+// tokens, Session Manager data-channel tokens) rather than SigV4.
+var exemptPrefixes = []string{"/agent/", "/v1/data-channel/"}
+
+func isExempt(path string) bool {
+	for _, p := range exemptPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Auth creates a middleware that validates credentials against the store.
 // If the store is nil, the middleware is a no-op (auth disabled).
 // The expectedRegion is used to validate the region in SigV4 credential scope.
 func Auth(credStore credentials.CredentialStore, expectedRegion string, log logger.LoggerInterface) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if credStore == nil {
+			if credStore == nil || isExempt(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}

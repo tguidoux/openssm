@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	badger "github.com/tguidoux/openssm/pkgs/v1/kv/badger"
 	"github.com/tguidoux/openssm/pkgs/v1/credentials"
+	badger "github.com/tguidoux/openssm/pkgs/v1/kv/badger"
 	_ "modernc.org/sqlite"
 )
 
