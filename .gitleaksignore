@@ -1,0 +1,4 @@
+# Fake fixture credentials (test access keys and a commented config example).
+5e0fafb5a96d53420958332da892d44b395c672d:apps/go/server/config.yaml:aws-access-token:77
+5e0fafb5a96d53420958332da892d44b395c672d:apps/go/server/middleware/tests/auth_test.go:generic-api-key:33
+5e0fafb5a96d53420958332da892d44b395c672d:apps/go/server/middleware/tests/auth_test.go:aws-access-token:32

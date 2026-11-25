@@ -1,0 +1,32 @@
+{{define "content"}}
+<h1>Documents</h1>
+
+<div class="actions-bar">
+    <div class="tabs">
+        {{range $o := (list "Self" "Amazon" "All")}}
+        <a href="/documents?owner={{$o}}" class="btn btn-sm {{if eq $o $.Data.Owner}}btn-primary{{else}}btn-secondary{{end}}">{{if eq $o "Self"}}Owned by me{{else if eq $o "Amazon"}}Owned by Amazon{{else}}All{{end}}</a>
+        {{end}}
+    </div>
+    <a href="/documents/new" class="btn btn-primary">+ Create document</a>
+</div>
+
+{{if .Data.Documents}}
+<table class="table" id="document-table">
+    <thead><tr><th>Name</th><th>Type</th><th>Owner</th><th>Default version</th><th>Platforms</th><th>Format</th></tr></thead>
+    <tbody>
+    {{range .Data.Documents}}
+    <tr>
+        <td data-label="Name" class="mono"><a href="/document?name={{.Name}}">{{.Name}}</a></td>
+        <td data-label="Type">{{.DocumentType}}</td>
+        <td data-label="Owner">{{.Owner}}</td>
+        <td data-label="Default version" class="num">{{.DocumentVersion}}</td>
+        <td data-label="Platforms">{{join .PlatformTypes ", "}}</td>
+        <td data-label="Format">{{.DocumentFormat}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+{{else}}
+<p class="empty-state">No documents found. <a href="/documents/new">Create one</a>.</p>
+{{end}}
+{{end}}

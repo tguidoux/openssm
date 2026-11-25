@@ -1,0 +1,37 @@
+OpenSSM has been deployed!
+
+1. Get the endpoint:
+{{- if .Values.ingress.enabled }}
+{{- with (index .Values.ingress.hosts 0) }}
+  export OPENSSM_HOST={{ .host }}
+  export AWS_ENDPOINT_URL=https://$OPENSSM_HOST
+{{- end }}
+{{- else }}
+  {{- if eq .Values.service.type "LoadBalancer" }}
+  export OPENSSM_HOST=$(kubectl get svc {{ include "openssm.fullname" . }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+  {{- else }}
+  kubectl port-forward svc/{{ include "openssm.fullname" . }} {{ .Values.service.port }}:api {{ .Values.service.uiPort }}:ui
+  export OPENSSM_HOST=localhost
+  {{- end }}
+  export AWS_ENDPOINT_URL=http://$OPENSSM_HOST:{{ .Values.service.port }}
+{{- end }}
+
+2. Use the AWS CLI / SDKs as usual (create credentials in the Web UI first):
+   aws ssm put-parameter --name /demo/hello --value world --type String
+   aws ssm get-parameter --name /demo/hello
+
+3. Register hosts as managed instances:
+   aws ssm create-activation --iam-role openssm
+   openssm-agent -server $AWS_ENDPOINT_URL -activation-id <id> -activation-code <code>
+{{- if .Values.agent.enabled }}
+   (an openssm-agent DaemonSet is also running on every node)
+{{- end }}
+
+4. Web UI:   http://$OPENSSM_HOST:{{ .Values.service.uiPort }}
+   Metrics:  kubectl port-forward svc/{{ include "openssm.fullname" . }} {{ .Values.service.metricsPort }}:metrics
+{{- if not .Values.openssm.sessions.streamUrlBase }}
+
+NOTE: openssm.sessions.streamUrlBase is empty. `aws ssm start-session` only accepts
+stream hosts shaped like ssmmessages.<region>.<domain>; set streamUrlBase or export
+AWS_SSM_PLUGIN_ADDITIONAL_STREAM_HOSTS=<host> on clients.
+{{- end }}

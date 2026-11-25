@@ -1,0 +1,63 @@
+# Docker Compose — OpenSSM server plus a managed instance running openssm-agent
+#
+# The "activate" job creates a hybrid activation with the AWS CLI and writes it
+# to a shared volume; the agent registers with it on start. Then:
+#
+#   export AWS_ENDPOINT_URL=http://localhost:9330 AWS_DEFAULT_REGION=us-east-1
+#   export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+#   export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+#   aws ssm describe-instance-information
+#   aws ssm send-command --document-name AWS-RunShellScript \
+#     --targets Key=tag:role,Values=demo --parameters 'commands=["uname -a"]'
+#   aws ssm start-session --target <mi-...>
+#
+# Usage:
+#   docker compose -f examples/docker-compose/docker-compose.agent.yml up
+
+services:
+  openssm:
+    image: ghcr.io/tguidoux/openssm/openssm-server:latest
+    ports:
+      - "9330:9330"
+      - "9331:9331"
+      - "9332:9332"
+    volumes:
+      - ./config.agent.yaml:/etc/openssm/config.yaml:ro
+    environment:
+      - CONFIG_PATH=/etc/openssm/config.yaml
+
+  activate:
+    image: amazon/aws-cli:latest
+    depends_on: [openssm]
+    environment:
+      AWS_ENDPOINT_URL: http://openssm:9330
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+      AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws ssm describe-activations >/dev/null 2>&1; do sleep 1; done
+        [ -s /shared/activation.env ] && exit 0
+        aws ssm create-activation --iam-role demo --registration-limit 10 \
+          --query '[ActivationId,ActivationCode]' --output text \
+          | awk '{print "OPENSSM_ACTIVATION_ID="$$1"\nOPENSSM_ACTIVATION_CODE="$$2}' > /shared/activation.env
+    volumes:
+      - shared:/shared
+
+  agent:
+    image: ghcr.io/tguidoux/openssm/openssm-agent:latest
+    depends_on:
+      activate:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - set -a && . /shared/activation.env && exec /apps/go/agent/openssm-agent_/openssm-agent -server http://openssm:9330 -state-file /state/agent.json
+    volumes:
+      - shared:/shared:ro
+      - agent-state:/state
+    restart: unless-stopped
+
+volumes:
+  shared:
+  agent-state:

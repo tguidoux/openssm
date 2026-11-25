@@ -1,0 +1,324 @@
+# OpenSSM Helm Chart Values
+# This file contains default configuration values for the OpenSSM Helm chart.
+
+# -- Number of replicas. OpenSSM keeps state in a single local database, so run 1 replica (use sqlite/badger with a PVC for persistence).
+replicaCount: 1
+
+image:
+  # -- Image repository
+  repository: ghcr.io/tguidoux/openssm/openssm-server
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag (defaults to chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+
+# -- Override the full name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Name of the service account (generated if not set)
+  name: ""
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  fsGroup: 65532
+  runAsNonRoot: true
+  runAsUser: 65532
+
+# -- Container security context
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- SSM API port (also serves the agent API and Session Manager data channels)
+  port: 9330
+  # -- UI port
+  uiPort: 9331
+  # -- Metrics port
+  metricsPort: 9332
+  # -- Health check port
+  healthPort: 8001
+
+# OpenSSM server configuration
+openssm:
+  # -- Server host
+  host: "0.0.0.0"
+  # -- Server port
+  port: 9330
+
+  # SSM configuration
+  ssm:
+    # -- External address clients and agents use (service DNS or ingress host, host:port or URL)
+    nodeAddress: ""
+    # -- AWS account ID used in ARNs
+    accountId: "123456789012"
+    # -- AWS region
+    region: "us-east-1"
+    # -- Storage type: "memory", "sqlite", or "badger"
+    storageType: "memory"
+    # -- SQLite database path (used when storageType is "sqlite")
+    sqlitePath: "/data/openssm.db"
+    # -- BadgerDB directory path (used when storageType is "badger")
+    badgerPath: "/data/badger"
+    # -- Server secret: signs agent/session tokens and wraps KMS keys (REQUIRED)
+    # Set this value, or use existingSecret to reference a Kubernetes Secret.
+    # If both are empty, the chart will fail to render.
+    serverSecret: ""
+
+  # Local KMS used for SecureString parameters
+  kms:
+    # -- Create unknown key IDs/aliases on first use instead of returning InvalidKeyId
+    autoCreateKeys: false
+    # -- Customer keys created at startup
+    keys: []
+    # - alias: "alias/my-app"
+    #   description: "My application key"
+
+  # Parameter Store
+  parameters:
+    # -- Default tier: Standard, Advanced, or Intelligent-Tiering
+    defaultTier: "Standard"
+    # -- Maximum Standard parameters (0 = unlimited)
+    maxStandardParameters: 10000
+    # -- Maximum Advanced parameters (0 = unlimited)
+    maxAdvancedParameters: 100000
+    # -- Parameters created at startup (skipped if they exist)
+    startup: []
+    # - name: "/my-app/prod/url"
+    #   value: "https://example.com"
+    #   type: "String"
+
+  # Managed instances
+  agents:
+    # -- Seconds without heartbeat before an instance is ConnectionLost
+    pingTimeoutSeconds: 120
+
+  # Session Manager
+  sessions:
+    # -- StreamUrl base returned by StartSession. session-manager-plugin only
+    # connects to hosts shaped like "ssmmessages.<region>.<domain>" (or hosts
+    # in AWS_SSM_PLUGIN_ADDITIONAL_STREAM_HOSTS), e.g.
+    # "wss://ssmmessages.us-east-1.openssm.example.com". Defaults to the API endpoint.
+    streamUrlBase: ""
+
+  # -- Log level: "debug", "info", "warn", "error"
+  logLevel: "info"
+
+  # Health check server
+  health:
+    enabled: true
+    port: 8001
+
+  # Web UI server
+  ui:
+    enabled: true
+    port: 9331
+
+  # Prometheus metrics server
+  metrics:
+    enabled: true
+    port: 9332
+
+  # -- Environment: "local", "staging", "prod"
+  environment: "prod"
+
+  # Request logging middleware
+  requestLogging:
+    # -- Enable structured HTTP request logging
+    enabled: false
+
+  # Rate limiting middleware
+  rateLimit:
+    # -- Enable rate limiting
+    enabled: false
+    # -- Requests per second
+    requestsPerSecond: 1000
+    # -- Burst capacity
+    burst: 100
+    # -- Per-action rate limiting (vs global)
+    perAction: false
+
+  # SigV4 authentication
+  auth:
+    # -- Require SigV4-signed requests
+    enabled: true
+
+  # TLS configuration
+  tls:
+    # -- Enable TLS for the SSM API server
+    enabled: false
+    # -- TLS certificate file path
+    certFile: ""
+    # -- TLS private key file path
+    keyFile: ""
+
+# Optional openssm-agent DaemonSet (registers every node as a managed instance)
+agent:
+  # -- Deploy openssm-agent as a DaemonSet
+  enabled: false
+  image:
+    # -- Agent image repository
+    repository: ghcr.io/tguidoux/openssm/openssm-agent
+    # -- Agent image tag (defaults to chart appVersion)
+    tag: ""
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+  # -- Server URL the agent connects to (defaults to the in-cluster service)
+  serverUrl: ""
+  # -- Secret with "activationId" and "activationCode" keys (from aws ssm create-activation)
+  activationSecret: ""
+  # -- Disable Session Manager sessions on agents
+  disableSessions: false
+  # -- Agent resources
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  # -- Node selector for agent pods
+  nodeSelector: {}
+  # -- Tolerations for agent pods
+  tolerations: []
+
+# -- Existing secret containing the server secret
+# If set, openssm.ssm.serverSecret will be ignored and the secret's key "serverSecret" will be used
+existingSecret: ""
+
+# Persistence configuration
+persistence:
+  # -- Enable persistent storage (required for sqlite/badger storage types)
+  enabled: false
+  # -- Storage class name (uses cluster default if not set)
+  storageClass: ""
+  # -- Access modes
+  accessModes:
+    - ReadWriteOnce
+  # -- Storage size
+  size: 10Gi
+  # -- Mount path
+  mountPath: /data
+
+# Ingress configuration
+ingress:
+  # -- Enable ingress for the SSM API (must support WebSockets for Session Manager)
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Annotations for the ingress
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  # -- Hosts configuration
+  hosts:
+    - host: openssm.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration for ingress
+  tls: []
+  #  - secretName: openssm-tls
+  #    hosts:
+  #      - openssm.local
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# -- Readiness probe
+readinessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# -- Liveness probe
+livenessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# -- Startup probe (useful for slow-starting instances)
+startupProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  failureThreshold: 30
+
+# -- Autoscaling (requires metrics server)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Extra environment variables
+extraEnv: []
+
+# -- Extra envFrom (e.g., ConfigMap or Secret references)
+extraEnvFrom: []
+
+# -- Extra volumes
+extraVolumes: []
+
+# -- Extra volume mounts
+extraVolumeMounts: []
+
+# -- Priority class name for the pod
+priorityClassName: ""
+
+# -- Network policy configuration
+networkPolicy:
+  enabled: false
+  ingress:
+    allowAll: true
+    rules: []
+  egress:
+    allowAll: true
+    rules: []

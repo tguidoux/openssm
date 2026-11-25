@@ -1,0 +1,28 @@
+# Docker Compose — OpenSSM with SQLite persistence
+#
+# Usage:
+#   docker compose -f examples/docker-compose/docker-compose.sqlite.yml up
+#
+# Endpoints:
+#   SSM API:  http://localhost:9330
+#   Web UI:   http://localhost:9331
+#   Metrics:  http://localhost:9332/metrics
+#
+# See: examples/README.md
+
+services:
+  openssm:
+    image: ghcr.io/tguidoux/openssm/openssm-server:latest
+    ports:
+      - "9330:9330"  # SSM API + agent API + Session Manager
+      - "9331:9331"  # Web UI
+      - "9332:9332"  # Metrics
+    volumes:
+      - ./config.sqlite.yaml:/etc/openssm/config.yaml:ro
+      - openssm-data:/data
+    environment:
+      - CONFIG_PATH=/etc/openssm/config.yaml
+    restart: unless-stopped
+
+volumes:
+  openssm-data:

@@ -1,0 +1,59 @@
+load("@tar.bzl", "tar")
+load("//tools/rules/golang:defs.bzl", "openssm_go_binary", "openssm_go_image", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "main.go",
+        "startup_credentials.go",
+        "startup_parameters.go",
+        "storage.go",
+    ],
+    importpath = "github.com/tguidoux/openssm/apps/go/server",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//apps/go/server/agentapi:go_default_library",
+        "//apps/go/server/handlers:go_default_library",
+        "//apps/go/server/health:go_default_library",
+        "//apps/go/server/metrics:go_default_library",
+        "//apps/go/server/middleware:go_default_library",
+        "//apps/go/server/sessionws:go_default_library",
+        "//apps/go/server/tls:go_default_library",
+        "//apps/go/server/ui:go_default_library",
+        "//pkgs/v1/agentproto:go_default_library",
+        "//pkgs/v1/config:go_default_library",
+        "//pkgs/v1/credentials:go_default_library",
+        "//pkgs/v1/environment:go_default_library",
+        "//pkgs/v1/kv:go_default_library",
+        "//pkgs/v1/kv/badger:go_default_library",
+        "//pkgs/v1/kv/memory:go_default_library",
+        "//pkgs/v1/kv/sqlite:go_default_library",
+        "//pkgs/v1/logger:go_default_library",
+        "//pkgs/v1/ssm/agenthub:go_default_library",
+        "//pkgs/v1/ssm/commands:go_default_library",
+        "//pkgs/v1/ssm/documents:go_default_library",
+        "//pkgs/v1/ssm/instances:go_default_library",
+        "//pkgs/v1/ssm/kms:go_default_library",
+        "//pkgs/v1/ssm/parameters:go_default_library",
+        "//pkgs/v1/ssm/sessions:go_default_library",
+        "//pkgs/v1/ssm/tags:go_default_library",
+        "//pkgs/v1/ssm/types:go_default_library",
+        "@org_modernc_sqlite//:go_default_library",
+    ],
+)
+
+openssm_go_binary(
+    name = "openssm-server",
+    auto_load_config = True,
+    data = ["config.yaml"],
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+openssm_go_image(
+    name = "openssm_server_image",
+    binary = ":openssm-server",
+    image_tags = ["openssm-server:latest"],
+    registry = "ghcr.io/tguidoux/openssm",
+)

@@ -1,0 +1,32 @@
+{
+    "_base": {
+        "description": "Base config that all subsequent analyzers, even unspecified will inherit.",
+        "exclude_files": {
+            "external/.*": "exclude all files under external/gazelle~ for all analyzers",
+            "^external/$": "exclude all files under external/gazelle~ for all analyzers"
+        }
+    },
+    "importunsafe": {
+        "exclude_files": {
+            "src/bar\\.go": "see issue #1337",
+            "src/foo\\.go": "manually verified that behavior is working-as-intended"
+        }
+    },
+    "unsafedom": {
+        "exclude_files": {
+            "src/(third_party|vendor)/.*": "enforce DOM safety requirements only on first-party code"
+        }
+    },
+    "unsafeptr": {
+        "exclude_files": {
+            "external/.*": "exclude all files under external/gazelle~ for all analyzers",
+            "^external/$": "exclude all files under external/gazelle~ for all analyzers"
+        }
+    },
+    "structtag": {
+        "exclude_files": {}
+    },
+    "nilness": {
+        "exclude_files": {}
+    }
+}

@@ -1,0 +1,27 @@
+{{define "content"}}
+<h1>Run Command</h1>
+<div class="actions-bar">
+    <a href="/commands/new" class="btn btn-primary">+ Run command</a>
+</div>
+{{if and .Data .Data.Commands}}
+<table class="table" id="command-table">
+    <thead><tr><th>Command ID</th><th>Document</th><th>Status</th><th>Targets</th><th>Completed</th><th>Errors</th><th>Requested</th><th>Comment</th></tr></thead>
+    <tbody>
+    {{range .Data.Commands}}
+    <tr>
+        <td data-label="Command ID" class="mono small"><a href="/command?id={{.CommandID}}">{{.CommandID}}</a></td>
+        <td data-label="Document">{{.DocumentName}}</td>
+        <td data-label="Status"><span class="badge {{statusClass .Status}}">{{.Status}}</span></td>
+        <td data-label="Targets" class="num">{{.TargetCount}}</td>
+        <td data-label="Completed" class="num">{{.CompletedCount}}</td>
+        <td data-label="Errors" class="num">{{.ErrorCount}}</td>
+        <td data-label="Requested">{{fmtTime .RequestedDateTime}}</td>
+        <td data-label="Comment">{{.Comment}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+{{else}}
+<p class="empty-state">No commands yet.</p>
+{{end}}
+{{end}}

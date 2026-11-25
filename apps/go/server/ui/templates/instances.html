@@ -1,0 +1,130 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Fleet</h1>
+<p class="muted">Managed instances run <span class="mono">openssm-agent</span> and register with a hybrid activation.</p>
+
+{{if .Created}}
+<div class="card credential-created-card">
+    <h2>🔑 Activation created</h2>
+    <p class="warning-text">Copy the activation code now. It will not be shown again.</p>
+    <dl class="details">
+        <dt>Activation ID</dt><dd class="mono">{{.Created.ActivationID}}</dd>
+        <dt>Activation code</dt><dd class="mono">{{.Created.ActivationCode}}</dd>
+    </dl>
+    <h3>Start an agent</h3>
+    <pre class="export-block" id="agent-cmd">openssm-agent \
+  -server {{.ServerURL}} \
+  -activation-id {{.Created.ActivationID}} \
+  -activation-code {{.Created.ActivationCode}}</pre>
+    <button type="button" class="btn btn-primary btn-copy btn-sm" data-copy="agent-cmd">Copy</button>
+</div>
+{{end}}
+
+<div class="actions-bar">
+    <a href="/commands/new" class="btn btn-primary">Run command</a>
+</div>
+
+{{if .Instances}}
+<table class="table" id="instance-table">
+    <thead><tr><th>Instance ID</th><th>Name</th><th>Ping</th><th>Platform</th><th>IP</th><th>Agent</th><th>Last ping</th><th>Tags</th><th></th></tr></thead>
+    <tbody>
+    {{range .Instances}}
+    <tr>
+        <td data-label="Instance ID" class="mono">{{.InstanceID}}</td>
+        <td data-label="Name">{{.Name}}</td>
+        <td data-label="Ping"><span class="badge {{statusClass .PingStatus}}">{{.PingStatus}}</span></td>
+        <td data-label="Platform">{{.PlatformType}} {{.PlatformName}}</td>
+        <td data-label="IP" class="mono small">{{.IPAddress}}</td>
+        <td data-label="Agent" class="small">{{.AgentVersion}}</td>
+        <td data-label="Last ping">{{fmtTime .LastPingDateTime}}</td>
+        <td data-label="Tags">
+            {{$iid := .InstanceID}}
+            {{range .Tags}}
+            <form method="POST" action="/instances/tags" class="inline">
+                <input type="hidden" name="id" value="{{$iid}}">
+                <input type="hidden" name="key" value="{{.Key}}">
+                <input type="hidden" name="action" value="remove">
+                <span class="badge badge-standard">{{.Key}}={{.Value}} <button type="submit" class="badge-x" title="Remove tag {{.Key}}" aria-label="Remove tag {{.Key}}">×</button></span>
+            </form>
+            {{end}}
+            <form method="POST" action="/instances/tags" class="inline">
+                <input type="hidden" name="id" value="{{.InstanceID}}">
+                <input type="text" name="key" placeholder="key" class="input-sm" required aria-label="Tag key for {{.InstanceID}}">
+                <input type="text" name="value" placeholder="value" class="input-sm" aria-label="Tag value for {{.InstanceID}}">
+                <button type="submit" class="btn btn-sm btn-secondary">Tag</button>
+            </form>
+        </td>
+        <td data-label="Actions" class="action-cell">
+            <a href="/commands/new?instance={{.InstanceID}}" class="btn btn-sm btn-primary">Run</a>
+            <a href="/sessions" class="btn btn-sm btn-secondary" title="aws ssm start-session --target {{.InstanceID}}">Sessions</a>
+            <form method="POST" action="/instances/deregister" class="inline" data-confirm="Deregister {{.InstanceID}}? The agent will need a new activation.">
+                <input type="hidden" name="id" value="{{.InstanceID}}">
+                <button type="submit" class="btn btn-sm btn-danger">Deregister</button>
+            </form>
+        </td>
+    </tr>
+    {{end}}
+    </tbody>
+</table>
+{{else}}
+<p class="empty-state">No managed instances yet. Create an activation below and start <span class="mono">openssm-agent</span>.</p>
+{{end}}
+
+<div class="card">
+    <h2>Create activation</h2>
+    <form method="POST" action="/activations">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="description">Description</label>
+                <input type="text" id="description" name="description">
+            </div>
+            <div class="form-group">
+                <label for="defaultInstanceName">Default instance name</label>
+                <input type="text" id="defaultInstanceName" name="defaultInstanceName">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="limit">Registration limit</label>
+                <input type="number" id="limit" name="limit" value="1" min="1" max="1000">
+            </div>
+            <div class="form-group">
+                <label for="expiresHours">Expires in (hours)</label>
+                <input type="number" id="expiresHours" name="expiresHours" value="24" min="1" max="720">
+            </div>
+            <div class="form-group">
+                <label for="iamRole">IAM role (informational)</label>
+                <input type="text" id="iamRole" name="iamRole" value="OpenSSMManagedInstanceRole">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Create activation</button>
+    </form>
+</div>
+
+{{if .Activations}}
+<div class="card">
+    <h2>Activations</h2>
+    <table class="table table-compact">
+        <thead><tr><th>Activation ID</th><th>Description</th><th>Registrations</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {{range .Activations}}
+        <tr>
+            <td class="mono small">{{.ActivationID}}</td>
+            <td>{{.Description}}</td>
+            <td class="num">{{.RegistrationsCount}} / {{.RegistrationLimit}}</td>
+            <td>{{fmtTime .ExpirationDate}}</td>
+            <td>{{if .Expired}}<span class="badge badge-danger">Expired</span>{{else}}<span class="badge badge-success">Active</span>{{end}}</td>
+            <td class="action-cell">
+                <form method="POST" action="/activations/delete" class="inline" data-confirm="Delete activation?">
+                    <input type="hidden" name="id" value="{{.ActivationID}}">
+                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}
+{{end}}

@@ -1,0 +1,34 @@
+{{define "content"}}
+{{with .Data}}
+<p><a href="/commands">← Run Command</a></p>
+<h1>Command <span class="mono small">{{.Command.CommandID}}</span></h1>
+{{if .Active}}
+<div class="actions-bar">
+    <form method="POST" action="/command/cancel" class="inline" data-confirm="Cancel this command?">
+        <input type="hidden" name="id" value="{{.Command.CommandID}}">
+        <button type="submit" class="btn btn-warning">Cancel command</button>
+    </form>
+    <span class="muted small">This page refreshes automatically while the command runs.</span>
+</div>
+{{end}}
+<div class="card">
+    <dl class="details">
+        <dt>Status</dt><dd><span class="badge {{statusClass .Command.Status}}">{{.Command.Status}}</span></dd>
+        <dt>Document</dt><dd>{{.Command.DocumentName}} (v{{.Command.DocumentVersion}})</dd>
+        <dt>Requested</dt><dd>{{fmtTime .Command.RequestedDateTime}}</dd>
+        <dt>Targets</dt><dd>{{.Command.TargetCount}} ({{.Command.CompletedCount}} completed, {{.Command.ErrorCount}} errors)</dd>
+        {{if .Command.Comment}}<dt>Comment</dt><dd>{{.Command.Comment}}</dd>{{end}}
+    </dl>
+</div>
+{{range .Invocations}}
+<div class="card">
+    <h2><span class="mono">{{.InstanceID}}</span> {{.InstanceName}} <span class="badge {{statusClass .Status}}">{{.Status}}</span></h2>
+    <p class="muted small">{{.StatusDetails}}</p>
+    {{range .CommandPlugins}}
+    <h3>{{.Name}} — <span class="badge {{statusClass .Status}}">{{.Status}}</span>{{if ge .ResponseCode 0}} exit code {{.ResponseCode}}{{end}}</h3>
+    {{if .Output}}<pre class="export-block code-block">{{.Output}}</pre>{{end}}
+    {{end}}
+</div>
+{{end}}
+{{end}}
+{{end}}

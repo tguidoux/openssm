@@ -1,0 +1,20 @@
+apiVersion: v2
+name: openssm
+description: "OpenSSM - a self-hosted AWS Systems Manager (SSM) compatible server: Parameter Store, Documents, Run Command and Session Manager"
+type: application
+version: "0.1.0"
+appVersion: "v0.1.0"
+keywords:
+  - ssm
+  - parameter-store
+  - secrets
+  - run-command
+  - session-manager
+  - aws
+home: https://github.com/tguidoux/openssm
+sources:
+  - https://github.com/tguidoux/openssm
+maintainers:
+  - name: OpenSSM Team
+annotations:
+  category: DeveloperTools

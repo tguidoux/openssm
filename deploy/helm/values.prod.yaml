@@ -1,0 +1,131 @@
+# Production values for OpenSSM Helm Chart
+# This file overrides defaults in values.yaml for production deployments.
+
+replicaCount: 1  # Single replica unless using shared storage
+
+image:
+  pullPolicy: IfNotPresent
+  tag: ""  # Set to a specific version in production
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+podSecurityContext:
+  fsGroup: 65532
+  runAsNonRoot: true
+  runAsUser: 65532
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+
+openssm:
+  host: "0.0.0.0"
+  port: 9330
+
+  ssm:
+    nodeAddress: "https://openssm.example.com"  # External endpoint used by clients and agents
+    accountId: "123456789012"
+    region: "us-east-1"
+    storageType: "badger"  # Use persistent storage in production
+    badgerPath: "/data/badger"
+    serverSecret: ""  # REQUIRED: set via existingSecret or this field
+
+  sessions:
+    # Must match an ingress host shaped like ssmmessages.<region>.<domain>
+    streamUrlBase: "wss://ssmmessages.us-east-1.openssm.example.com"
+
+  logLevel: "info"
+
+  health:
+    enabled: true
+    port: 8001
+
+  ui:
+    enabled: true
+    port: 9331
+
+  metrics:
+    enabled: true
+    port: 9332
+
+  environment: "prod"
+
+  requestLogging:
+    enabled: true
+
+  rateLimit:
+    enabled: true
+    requestsPerSecond: 1000
+    burst: 100
+    perAction: true
+
+  tls:
+    enabled: false  # Typically handled by ingress in production
+
+# Use an existing secret for the server secret (required in production)
+existingSecret: ""  # Set to the secret name containing "serverSecret" key — server will fail to start without a secret
+
+persistence:
+  enabled: true
+  storageClass: ""  # Use a fast SSD-backed storage class
+  accessModes:
+    - ReadWriteOnce
+  size: 50Gi
+  mountPath: /data
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Long polls (agents) and Session Manager WebSockets need long timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: openssm.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: ssmmessages.us-east-1.openssm.example.com
+      paths:
+        - path: /v1/data-channel
+          pathType: Prefix
+  tls: []
+  #  - secretName: openssm-tls
+  #    hosts:
+  #      - openssm.example.com
+  #      - ssmmessages.us-east-1.openssm.example.com
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 256Mi
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: health
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1  # Use maxUnavailable instead of minAvailable to allow evictions with replicaCount=1

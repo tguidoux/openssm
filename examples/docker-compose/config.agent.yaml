@@ -1,0 +1,51 @@
+# OpenSSM configuration — server for the agent example
+#
+# Agents reach the server as http://openssm:9330; the AWS CLI on the host uses localhost.
+#
+# The AWS documentation example keys below are NOT secret. Replace them (and
+# serverSecret) in any shared deployment. Never commit real credentials.
+
+server:
+  host: "0.0.0.0"
+  port: 9330
+
+ssm:
+  nodeAddress: "localhost:9330"
+  accountId: "123456789012"
+  region: "us-east-1"
+  storageType: "memory"
+  serverSecret: "dev-only-not-for-production"
+
+sessions:
+  # session-manager-plugin only connects to ssmmessages.<region>.<domain> hosts;
+  # *.localhost resolves to 127.0.0.1 on most systems.
+  streamUrlBase: "ws://ssmmessages.us-east-1.localhost:9330"
+
+parameters:
+  startup:
+    - name: "/example/app/url"
+      value: "https://example.com"
+      type: "String"
+    - name: "/example/app/password"
+      value: "change-me"
+      type: "SecureString"
+
+log:
+  level: "info"
+
+ui:
+  enabled: true
+  port: 9331
+
+metrics:
+  enabled: true
+  port: 9332
+
+environment: "local"
+
+auth:
+  enabled: true
+  initialCredentials:
+    - label: "dev-access-key"
+      accessKeyId: "AKIAIOSFODNN7EXAMPLE"
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
