@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openssm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openssm.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      host: {{ .Values.openssm.host | quote }}
+      port: {{ .Values.openssm.port }}
+      {{- if .Values.openssm.tls.enabled }}
+      tls:
+        enabled: true
+        certFile: {{ .Values.openssm.tls.certFile | quote }}
+        keyFile: {{ .Values.openssm.tls.keyFile | quote }}
+      {{- end }}
+    sqs:
+      nodeAddress: {{ .Values.openssm.sqs.nodeAddress | quote }}
+      accountId: {{ .Values.openssm.sqs.accountId | quote }}
+      region: {{ .Values.openssm.sqs.region | quote }}
+      storageType: {{ .Values.openssm.sqs.storageType | quote }}
+      {{- if eq .Values.openssm.sqs.storageType "sqlite" }}
+      sqlitePath: {{ .Values.openssm.sqs.sqlitePath | quote }}
+      {{- end }}
+      {{- if eq .Values.openssm.sqs.storageType "badger" }}
+      badgerPath: {{ .Values.openssm.sqs.badgerPath | quote }}
+      {{- end }}
+      strictLimits: {{ .Values.openssm.sqs.strictLimits }}
+      # serverSecret is loaded from the Kubernetes Secret via SQS__SERVERSECRET env var
+    log:
+      level: {{ .Values.openssm.logLevel | quote }}
+    health:
+      port: {{ .Values.openssm.health.port }}
+    ui:
+      enabled: {{ .Values.openssm.ui.enabled }}
+      port: {{ .Values.openssm.ui.port }}
+    metrics:
+      enabled: {{ .Values.openssm.metrics.enabled }}
+      port: {{ .Values.openssm.metrics.port }}
+    environment: {{ .Values.openssm.environment | quote }}
+    requestLogging:
+      enabled: {{ .Values.openssm.requestLogging.enabled }}
+    rateLimit:
+      enabled: {{ .Values.openssm.rateLimit.enabled }}
+      requestsPerSecond: {{ .Values.openssm.rateLimit.requestsPerSecond }}
+      burst: {{ .Values.openssm.rateLimit.burst }}
+      perQueue: {{ .Values.openssm.rateLimit.perQueue }}
+    queues:
+      autoCreate: {{ .Values.openssm.queues.autoCreate }}
+      {{- if .Values.openssm.queues.startup }}
+      startup:
+      {{- range .Values.openssm.queues.startup }}
+        - name: {{ .name | quote }}
+          {{- if .attributes }}
+          attributes:
+          {{- range $k, $v := .attributes }}
+            {{ $k }}: {{ $v | quote }}
+          {{- end }}
+          {{- end }}
+      {{- end }}
+      {{- end }}

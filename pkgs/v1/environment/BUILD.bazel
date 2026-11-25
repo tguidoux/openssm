@@ -1,0 +1,8 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = ["env.go"],
+    importpath = "github.com/tguidoux/openssm/pkgs/v1/environment",
+    visibility = ["//visibility:public"],
+)

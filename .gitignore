@@ -1,0 +1,74 @@
+# =====================
+# Go
+# =====================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work.sum
+
+# =====================
+# Bazel
+# =====================
+bazel-*
+bazel-bin
+bazel-genfiles
+bazel-out
+bazel-testlogs
+.bazelrc.user
+
+# =====================
+# Environment & Secrets
+# =====================
+.env
+.env.*
+*.env
+*.env.*
+.volumes/
+config.json
+secrets.yaml
+*.secret
+
+# =====================
+# IDE & Editor
+# =====================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# =====================
+# Build & Distribution
+# =====================
+dist/
+build/
+bin/
+*.log
+logs/
+
+# =====================
+# Database
+# =====================
+db/
+db/**
+*.db
+*.sqlite
+*.sqlite3
+
+# =====================
+# Test & Coverage
+# =====================
+coverage.out
+coverage.html
+*.cover
+
+# =====================
+# Internal Artifacts
+# =====================
+.internal/

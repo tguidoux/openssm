@@ -1,0 +1,56 @@
+{{define "content"}}
+{{with .Data}}
+<p><a href="/parameters">← Parameters</a></p>
+<h1>{{if .Edit}}Edit parameter{{else}}Create parameter{{end}}</h1>
+<div class="card">
+<form method="POST" action="/parameters">
+    {{if .Edit}}<input type="hidden" name="edit" value="1">{{end}}
+    <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" value="{{.Name}}" {{if .Edit}}readonly{{end}} required placeholder="/my-app/prod/db-password">
+        <p class="hint">Use forward slashes to build a hierarchy, e.g. /app/env/key.</p>
+    </div>
+    <div class="form-group">
+        <label for="description">Description</label>
+        <input type="text" id="description" name="description" value="{{.Description}}">
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="tier">Tier</label>
+            <select id="tier" name="tier">
+                {{range $t := (list "Standard" "Advanced" "Intelligent-Tiering")}}<option value="{{$t}}" {{if eq $t $.Data.Tier}}selected{{end}}>{{$t}}</option>{{end}}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="type">Type</label>
+            <select id="type" name="type">
+                {{range $t := (list "String" "StringList" "SecureString")}}<option value="{{$t}}" {{if eq $t $.Data.Type}}selected{{end}}>{{$t}}</option>{{end}}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="dataType">Data type</label>
+            <select id="dataType" name="dataType">
+                {{range $t := (list "text" "aws:ec2:image" "aws:ssm:integration")}}<option value="{{$t}}" {{if eq $t $.Data.DataType}}selected{{end}}>{{$t}}</option>{{end}}
+            </select>
+        </div>
+    </div>
+    <div class="form-group" id="kms-group">
+        <label for="keyId">KMS key (SecureString only)</label>
+        <select id="keyId" name="keyId">
+            {{range .Keys}}<option value="{{.}}" {{if eq . $.Data.KeyID}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="value">Value</label>
+        <textarea id="value" name="value" rows="6" required>{{.Value}}</textarea>
+        <p class="hint">StringList values are comma-separated. Standard tier: up to 4 KB, Advanced: up to 8 KB.</p>
+    </div>
+    <div class="form-group">
+        <label for="allowedPattern">Allowed pattern (regex, optional)</label>
+        <input type="text" id="allowedPattern" name="allowedPattern" value="{{.Pattern}}">
+    </div>
+    <button type="submit" class="btn btn-primary">{{if .Edit}}Save new version{{else}}Create parameter{{end}}</button>
+</form>
+</div>
+{{end}}
+{{end}}

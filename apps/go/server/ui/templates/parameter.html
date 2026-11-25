@@ -1,0 +1,109 @@
+{{define "content"}}
+{{with .Data}}
+<p><a href="/parameters">← Parameters</a></p>
+<h1 class="mono">{{.Meta.Name}}</h1>
+
+<div class="actions-bar">
+    <a href="/parameter/edit?name={{.Meta.Name}}" class="btn btn-primary">Edit</a>
+    <form method="POST" action="/parameter/delete" class="inline" data-confirm="Delete parameter {{.Meta.Name}} and all its versions?">
+        <input type="hidden" name="name" value="{{.Meta.Name}}">
+        <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+</div>
+
+<div class="grid two-col">
+    <div class="card">
+        <h2>Details</h2>
+        <dl class="details">
+            <dt>Type</dt><dd>{{.Meta.Type}}</dd>
+            <dt>Tier</dt><dd>{{.Meta.Tier}}</dd>
+            <dt>Data type</dt><dd>{{.Meta.DataType}}</dd>
+            <dt>Version</dt><dd>{{.Meta.Version}}</dd>
+            {{if .Meta.KeyID}}<dt>KMS key</dt><dd class="mono">{{.Meta.KeyID}}</dd>{{end}}
+            {{if .Meta.Description}}<dt>Description</dt><dd>{{.Meta.Description}}</dd>{{end}}
+            {{if .Meta.AllowedPattern}}<dt>Allowed pattern</dt><dd class="mono">{{.Meta.AllowedPattern}}</dd>{{end}}
+            <dt>Last modified</dt><dd>{{fmtTime .Meta.LastModifiedDate}}</dd>
+            <dt>Modified by</dt><dd class="mono small">{{.Meta.LastModifiedUser}}</dd>
+            <dt>ARN</dt><dd class="mono small">{{.Meta.ARN}}</dd>
+        </dl>
+    </div>
+    <div class="card">
+        <h2>Value</h2>
+        {{if and (eq .Meta.Type "SecureString") (not .Reveal)}}
+        <pre class="export-block">••••••••</pre>
+        <a class="btn btn-secondary btn-sm" href="/parameter?name={{.Meta.Name}}&reveal=1">Show decrypted value</a>
+        {{else}}
+        <pre class="export-block" id="param-value">{{.Value}}</pre>
+        <button type="button" class="btn btn-primary btn-copy btn-sm" data-copy="param-value">Copy</button>
+        {{end}}
+        <h3>CLI</h3>
+        <pre class="export-block" id="param-cli">{{.CLI}}</pre>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Tags</h2>
+    {{if .Tags}}
+    <table class="table table-compact">
+        <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+        <tbody>
+        {{range .Tags}}
+        <tr>
+            <td class="mono">{{.Key}}</td><td>{{.Value}}</td>
+            <td class="action-cell">
+                <form method="POST" action="/parameter/tags" class="inline">
+                    <input type="hidden" name="name" value="{{$.Data.Meta.Name}}">
+                    <input type="hidden" name="key" value="{{.Key}}">
+                    <input type="hidden" name="action" value="remove">
+                    <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+    {{else}}<p class="muted">No tags.</p>{{end}}
+    <form method="POST" action="/parameter/tags" class="form-row inline-form">
+        <input type="hidden" name="name" value="{{.Meta.Name}}">
+        <div class="form-group"><input type="text" name="key" placeholder="Key" required aria-label="Tag key"></div>
+        <div class="form-group"><input type="text" name="value" placeholder="Value" aria-label="Tag value"></div>
+        <button type="submit" class="btn btn-secondary">Add tag</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>History</h2>
+    <table class="table table-compact" id="history-table">
+        <thead><tr><th>Version</th><th>Value</th><th>Labels</th><th>Last modified</th><th>Add label</th></tr></thead>
+        <tbody>
+        {{range $h := .History}}
+        <tr>
+            <td class="num">{{.Version}}</td>
+            <td class="body-cell mono">{{if and (eq .Type "SecureString") (not $.Data.Reveal)}}••••••••{{else}}{{.Value}}{{end}}</td>
+            <td>
+                {{range .Labels}}
+                <form method="POST" action="/parameter/label" class="inline">
+                    <input type="hidden" name="name" value="{{$.Data.Meta.Name}}">
+                    <input type="hidden" name="version" value="{{$h.Version}}">
+                    <input type="hidden" name="label" value="{{.}}">
+                    <input type="hidden" name="action" value="remove">
+                    <span class="badge badge-standard">{{.}} <button type="submit" class="badge-x" title="Remove label {{.}}" aria-label="Remove label {{.}}">×</button></span>
+                </form>
+                {{end}}
+            </td>
+            <td>{{fmtTime .LastModifiedDate}}</td>
+            <td>
+                <form method="POST" action="/parameter/label" class="inline">
+                    <input type="hidden" name="name" value="{{$.Data.Meta.Name}}">
+                    <input type="hidden" name="version" value="{{.Version}}">
+                    <input type="text" name="label" placeholder="label" class="input-sm" required aria-label="Label for version {{.Version}}">
+                    <button type="submit" class="btn btn-sm btn-secondary">Add</button>
+                </form>
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}

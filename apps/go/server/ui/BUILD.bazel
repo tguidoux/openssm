@@ -1,0 +1,35 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = [
+        "handlers.go",
+        "handlers_misc.go",
+        "handlers_parameters.go",
+        "server.go",
+    ],
+    embedsrcs = [
+        "static/app.js",
+        "static/style.css",
+        "templates/credentials.html",
+        "templates/layout.html",
+        "templates/metrics.html",
+        "templates/keys.html",
+        "templates/parameter.html",
+        "templates/parameter_form.html",
+        "templates/parameters.html",
+    ],
+    importpath = "github.com/tguidoux/openssm/apps/go/server/ui",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//apps/go/server/serverbase:go_default_library",
+        "//pkgs/v1/credentials:go_default_library",
+        "//pkgs/v1/logger:go_default_library",
+        "//pkgs/v1/ssm/kms:go_default_library",
+        "//pkgs/v1/ssm/parameters:go_default_library",
+        "//pkgs/v1/ssm/tags:go_default_library",
+        "//pkgs/v1/ssm/types:go_default_library",
+        "@com_github_prometheus_client_golang//prometheus:go_default_library",
+        "@com_github_prometheus_client_model//go:go_default_library",
+    ],
+)

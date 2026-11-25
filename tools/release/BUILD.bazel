@@ -1,0 +1,20 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_binary", "openssm_go_library", "openssm_go_test")
+
+openssm_go_binary(
+    name = "release",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/tguidoux/openssm/tools/release",
+    visibility = ["//visibility:private"],
+)
+
+openssm_go_test(
+    name = "go_default_test",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
+)

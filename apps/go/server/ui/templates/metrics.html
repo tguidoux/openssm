@@ -1,0 +1,20 @@
+{{define "content"}}
+<h1>Metrics</h1>
+<p class="muted">Prometheus metrics are also exposed on the metrics port at <span class="mono">/metrics</span>.</p>
+<div id="metrics-dashboard">
+{{range .Data}}
+<div class="card">
+    <h2 class="mono">{{.Name}}</h2>
+    <p class="hint">{{.Help}}</p>
+    <table class="table table-compact">
+        <thead><tr><th>Labels</th><th class="num">Value</th></tr></thead>
+        <tbody>
+        {{range .Rows}}<tr><td class="mono small">{{.Labels}}</td><td class="num">{{.Value}}</td></tr>{{else}}<tr><td colspan="2" class="empty-state">No data yet.</td></tr>{{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<p class="empty-state">No metrics recorded yet.</p>
+{{end}}
+</div>
+{{end}}

@@ -1,0 +1,19 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = [
+        "model.go",
+        "policies.go",
+        "service.go",
+        "validate.go",
+    ],
+    importpath = "github.com/tguidoux/openssm/pkgs/v1/ssm/parameters",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkgs/v1/kv:go_default_library",
+        "//pkgs/v1/ssm/kms:go_default_library",
+        "//pkgs/v1/ssm/tags:go_default_library",
+        "//pkgs/v1/ssm/types:go_default_library",
+    ],
+)

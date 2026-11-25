@@ -1,0 +1,12 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = ["badger.go"],
+    importpath = "github.com/tguidoux/openssm/pkgs/v1/kv/badger",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkgs/v1/kv:go_default_library",
+        "@com_github_dgraph_io_badger_v4//:go_default_library",
+    ],
+)

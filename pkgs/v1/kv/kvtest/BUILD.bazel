@@ -1,0 +1,13 @@
+load("//tools/rules/golang:defs.bzl", "openssm_go_library")
+
+openssm_go_library(
+    name = "go_default_library",
+    srcs = ["kvtest.go"],
+    importpath = "github.com/tguidoux/openssm/pkgs/v1/kv/kvtest",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkgs/v1/kv:go_default_library",
+        "@com_github_stretchr_testify//assert:go_default_library",
+        "@com_github_stretchr_testify//require:go_default_library",
+    ],
+)

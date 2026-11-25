@@ -1,0 +1,37 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenSSM — {{.Title}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">OpenSSM</a>
+        </div>
+        <div class="nav-links">
+            <a href="/parameters" class="nav-link{{if eq .Nav "parameters"}} active{{end}}">Parameters</a>
+            <a href="/keys" class="nav-link{{if eq .Nav "keys"}} active{{end}}">KMS Keys</a>
+            <a href="/credentials" class="nav-link{{if eq .Nav "credentials"}} active{{end}}">Credentials</a>
+            {{if .MetricsEnabled}}
+            <a href="/metrics" class="nav-link{{if eq .Nav "metrics"}} active{{end}}">Metrics</a>
+            {{end}}
+        </div>
+        <div class="nav-actions">
+            <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">
+                <span class="theme-icon-dark">🌙</span>
+                <span class="theme-icon-light">☀️</span>
+            </button>
+        </div>
+    </nav>
+    <main class="container">
+        {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+        {{if .Success}}<div class="alert alert-success">{{.Success}}</div>{{end}}
+        {{template "content" .}}
+    </main>
+    <script src="/static/app.js"></script>
+</body>
+</html>
+{{end}}

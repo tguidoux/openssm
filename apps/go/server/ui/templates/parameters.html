@@ -1,0 +1,46 @@
+{{define "content"}}
+<h1>Parameter Store</h1>
+
+<div class="actions-bar">
+    <form method="GET" action="/parameters" class="search-form">
+        <input type="text" name="q" value="{{.Data.Filter}}" placeholder="Filter by name…" aria-label="Filter parameters by name">
+        <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+    <a href="/parameters/new" class="btn btn-primary">+ Create parameter</a>
+</div>
+
+{{if .Data.Parameters}}
+<p class="muted small">{{.Data.Count}} parameter(s)</p>
+<table class="table" id="parameter-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Tier</th>
+            <th>Type</th>
+            <th>Version</th>
+            <th>Last modified</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Data.Parameters}}
+        <tr>
+            <td data-label="Name" class="mono"><a href="/parameter?name={{.Name}}">{{.Name}}</a></td>
+            <td data-label="Tier">{{.Tier}}</td>
+            <td data-label="Type"><span class="badge {{if eq .Type "SecureString"}}badge-fifo{{else}}badge-standard{{end}}">{{.Type}}</span></td>
+            <td data-label="Version" class="num">{{.Version}}</td>
+            <td data-label="Last modified">{{fmtTime .LastModifiedDate}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<p class="empty-state">No parameters found. <a href="/parameters/new">Create one</a>.</p>
+{{end}}
+
+<div class="card">
+    <h2>AWS CLI</h2>
+    <p class="hint">Point the AWS CLI or SDKs at this OpenSSM instance.</p>
+    <pre class="export-block" id="cli-env-vars">{{.CLIEnvVars}}</pre>
+    <button type="button" class="btn btn-primary btn-copy" data-copy="cli-env-vars">Copy</button>
+</div>
+{{end}}

@@ -1,0 +1,78 @@
+server:
+  host: "0.0.0.0"
+  port: 9330
+  # tls:
+  #   enabled: false
+  #   certFile: "/path/to/cert.pem"
+  #   keyFile: "/path/to/key.pem"
+
+ssm:
+  # External address used by clients and agents (also used for Session Manager stream URLs).
+  nodeAddress: "localhost:9330"
+  accountId: "123456789012"
+  region: "us-east-1"
+  storageType: "sqlite"  # "memory", "sqlite", or "badger"
+  sqlitePath: "/tmp/openssm.db"
+  # badgerPath: "/data/badger"
+  # Secret used to sign agent/session tokens and (by default) wrap KMS keys.
+  # For local development only. In production set SSM__SERVERSECRET or mount a secret.
+  # Never commit real secrets to source control.
+  serverSecret: "dev-only-not-for-production"
+
+kms:
+  # masterKey defaults to ssm.serverSecret. Changing it makes existing SecureString values unreadable.
+  # masterKey: ""
+  autoCreateKeys: false
+  keys:
+    - alias: "alias/openssm-dev"
+      description: "Example customer key"
+
+parameters:
+  defaultTier: "Standard"   # Standard, Advanced, or Intelligent-Tiering
+  maxStandardParameters: 10000
+  maxAdvancedParameters: 100000
+  # Parameters created at startup (skipped when they already exist)
+  startup:
+    - name: "/openssm/example/greeting"
+      value: "hello from OpenSSM"
+      type: "String"
+      description: "Example startup parameter"
+    - name: "/openssm/example/secret"
+      value: "s3cr3t"
+      type: "SecureString"
+      tags:
+        env: "dev"
+
+log:
+  level: "info"
+
+health:
+  port: 8001
+
+ui:
+  enabled: true
+  port: 9331
+
+metrics:
+  enabled: true
+  port: 9332
+
+environment: "local"
+
+requestLogging:
+  enabled: false
+
+rateLimit:
+  enabled: false
+  requestsPerSecond: 1000
+  burst: 100
+  perAction: false
+
+# SigV4 authentication. When enabled (default), API requests must be signed
+# with a credential created in the UI or seeded below.
+auth:
+  enabled: true
+  # initialCredentials:
+  #   - label: "local"
+  #     accessKeyId: "AKIAOPENSSMLOCAL0001"
+  #     secretAccessKey: "openssm-local-secret"

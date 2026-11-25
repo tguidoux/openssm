@@ -1,0 +1,19 @@
+apiVersion: v2
+name: openssm
+description: OpenSSM - A self-hosted Amazon SQS-compatible message queue server
+type: application
+version: "0.1.3"
+appVersion: "v0.1.3"
+keywords:
+  - sqs
+  - queue
+  - messaging
+  - aws
+  - message-broker
+home: https://github.com/tguidoux/openssm
+sources:
+  - https://github.com/tguidoux/openssm
+maintainers:
+  - name: OpenSSM Team
+annotations:
+  category: Messaging
