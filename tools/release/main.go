@@ -361,6 +361,8 @@ func main() {
 	commitMsg := fmt.Sprintf("release(%s): bump Helm chart to %s", f.version, strippedVersion)
 	if f.dryRun {
 		info("[dry-run] Would commit: %s", commitMsg)
+	} else if exec.Command("git", "diff", "--cached", "--quiet").Run() == nil {
+		info("Chart.yaml already at %s, nothing to commit", strippedVersion)
 	} else {
 		if _, err := runCommand("git", "commit", "-m", commitMsg); err != nil {
 			fail("Failed to commit version bump: %v", err)
