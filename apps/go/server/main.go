@@ -38,15 +38,28 @@ import (
 // metrics gauges) runs.
 const sweepInterval = 30 * time.Second
 
-func main() {
-	configPath := os.Getenv(config.DefaultConfigEnvVar)
-	if configPath == "" {
-		if _, err := os.Stat(config.DefaultConfigPath); err == nil {
-			configPath = config.DefaultConfigPath
-		} else {
-			configPath = "/apps/go/server/config.yaml"
+// defaultConfigPath resolves the config file: $CONFIG_PATH, then ./config.yaml,
+// then the copy bundled in the Bazel runfiles next to the executable (which
+// is where it lives inside the container image).
+func defaultConfigPath() string {
+	if p := os.Getenv(config.DefaultConfigEnvVar); p != "" {
+		return p
+	}
+	candidates := []string{config.DefaultConfigPath}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, exe+".runfiles/_main/apps/go/server/config.yaml")
+	}
+	candidates = append(candidates, "/apps/go/server/config.yaml")
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
 		}
 	}
+	return candidates[len(candidates)-1]
+}
+
+func main() {
+	configPath := defaultConfigPath()
 	cfg := config.NewConfig[ServerConfig](configPath).Config
 
 	log := logger.New("openssm-server", logger.UncontextualLoggerType, parseLogLevel(cfg.Log.Level))
