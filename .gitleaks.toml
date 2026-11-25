@@ -1,0 +1,12 @@
+# Gitleaks configuration: default rules plus allowlists for fake fixtures.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credentials used in tests, examples and commented configuration"
+paths = [
+  '''(^|/)tests/.*_test\.go$''',
+]
+regexes = [
+  '''AKIA(OPENSSM|TEST|E2E|EXAMPLE)[A-Z0-9]*''',
+]
