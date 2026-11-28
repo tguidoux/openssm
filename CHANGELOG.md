@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Repository moved to [tguidoux/openaws](https://github.com/tguidoux/openaws).** OpenSSM is now part of the
+  openaws monorepo (lightweight, self-hostable AWS-compatible services) under
+  [`apps/go/ssm`](https://github.com/tguidoux/openaws/tree/main/apps/go/ssm). Go import paths change from
+  `github.com/tguidoux/openssm/...` to `github.com/tguidoux/openaws/...`, container images move to
+  `ghcr.io/tguidoux/openaws/ssm-server` and `ghcr.io/tguidoux/openaws/ssm-agent`, and new issues/PRs go to
+  tguidoux/openaws. See [MOVED.md](MOVED.md).
+
 ## [0.1.1] - 2026-11-25
 
 ### Fixed

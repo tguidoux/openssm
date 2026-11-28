@@ -1,5 +1,21 @@
 # OpenSSM
 
+> [!WARNING]
+> **⚠️ This repository has moved.**
+> OpenSSM now lives in the [tguidoux/openaws](https://github.com/tguidoux/openaws) monorepo — a collection of
+> lightweight, self-hostable AWS-compatible services sharing components, build and deployment.
+>
+> - **New home:** <https://github.com/tguidoux/openaws/tree/main/apps/go/ssm>
+>   (SSM libraries in [`pkgs/v1/ssm`](https://github.com/tguidoux/openaws/tree/main/pkgs/v1/ssm), shared libs in
+>   [`pkgs/v1/common`](https://github.com/tguidoux/openaws/tree/main/pkgs/v1/common), Helm chart in
+>   [`deploy/helm/ssm`](https://github.com/tguidoux/openaws/tree/main/deploy/helm/ssm))
+> - **Go imports:** `github.com/tguidoux/openssm/...` → `github.com/tguidoux/openaws/...`
+> - **Images:** `ghcr.io/tguidoux/openssm/openssm-server` → `ghcr.io/tguidoux/openaws/ssm-server` and
+>   `ghcr.io/tguidoux/openssm/openssm-agent` → `ghcr.io/tguidoux/openaws/ssm-agent`
+> - **Issues and PRs:** please open them in [tguidoux/openaws](https://github.com/tguidoux/openaws) instead of here.
+>
+> See [MOVED.md](MOVED.md) for details.
+
 [![CI](https://github.com/tguidoux/openssm/actions/workflows/ci.yml/badge.svg)](https://github.com/tguidoux/openssm/actions/workflows/ci.yml)
 [![Code Quality](https://github.com/tguidoux/openssm/actions/workflows/code-quality.yml/badge.svg)](https://github.com/tguidoux/openssm/actions/workflows/code-quality.yml)
 [![Go Version](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
